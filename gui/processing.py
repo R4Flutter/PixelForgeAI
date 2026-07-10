@@ -265,7 +265,9 @@ class _PipelineNode(QWidget):
             path = QPainterPath()
             path.arcMoveTo(cx - r, cy - r, r * 2, r * 2, 90)
             path.arcTo(cx - r, cy - r, r * 2, r * 2, 90, -360 * self._progress)
-            p.setPen(QPen(COLOR_COMPLETED, 2.5, cap=Qt.RoundCap))
+            pen = QPen(COLOR_COMPLETED, 2.5)
+            pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
             p.setBrush(Qt.NoBrush)
             p.drawPath(path)
 
@@ -279,12 +281,17 @@ class _PipelineNode(QWidget):
             path = QPainterPath()
             path.arcMoveTo(cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2, angle)
             path.arcTo(cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2, angle, 270)
-            p.setPen(QPen(COLOR_ACTIVE, 2.5, cap=Qt.RoundCap))
+            pen = QPen(COLOR_ACTIVE, 2.5)
+            pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
             p.setBrush(Qt.NoBrush)
             p.drawPath(path)
         elif self._state is _PipelineNode.State.COMPLETED:
             if self._checkmark_progress > 0:
-                p.setPen(QPen(COLOR_COMPLETED, 2.5, cap=Qt.RoundCap, join=Qt.RoundJoin))
+                pen = QPen(COLOR_COMPLETED, 2.5)
+                pen.setCapStyle(Qt.RoundCap)
+                pen.setJoinStyle(Qt.RoundJoin)
+                p.setPen(pen)
                 p.setBrush(Qt.NoBrush)
                 path = QPainterPath()
                 path.moveTo(cx - 4, cy + 1)
@@ -300,7 +307,9 @@ class _PipelineNode(QWidget):
                 p.setPen(Qt.NoPen)
                 p.drawEllipse(QPointF(cx, cy), 4, 4)
         elif self._state is _PipelineNode.State.FAILED:
-            p.setPen(QPen(COLOR_ERROR, 2.5, cap=Qt.RoundCap))
+            pen = QPen(COLOR_ERROR, 2.5)
+            pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
             p.drawLine(cx - 4, cy - 4, cx + 4, cy + 4)
             p.drawLine(cx + 4, cy - 4, cx - 4, cy + 4)
 
@@ -681,6 +690,8 @@ class ProcessingPage(QWidget):
         self._completed = False
         self._stage_index = -1
         self._stage_map = _StageLabelMap()
+        self._all_paths: List[str] = []
+        self._current_idx: int = 0
 
         self._bg = _AmbientBg(self)
 
@@ -826,7 +837,7 @@ class ProcessingPage(QWidget):
         super().resizeEvent(event)
         self._bg.setGeometry(self.rect())
 
-    def begin(self, total: int) -> None:
+    def begin(self, total: int, paths: Optional[List[str]] = None) -> None:
         self._t0 = time.monotonic()
         self._done = 0
         self._failed = 0
@@ -836,6 +847,8 @@ class ProcessingPage(QWidget):
         self._current_file = ""
         self._previous_files = []
         self._stage_map = _StageLabelMap()
+        self._all_paths = list(paths) if paths else []
+        self._current_idx = 0
 
         self._subtitle.setText(f"Batch of {self._total} image{'s' if self._total != 1 else ''}")
         self._desc_label.setText("")
@@ -846,6 +859,11 @@ class ProcessingPage(QWidget):
         self._bar.set_value(0.0)
         self._failed_list.setVisible(False)
         self._failed_list.setText("")
+        self._preview._file_name = ""
+        self._preview._next_file = ""
+        self._preview._queue_current = 0
+        self._preview._queue_total = self._total
+        self._preview.update()
 
         for node in self._nodes:
             node.set_state(_PipelineNode.State.WAITING, animate=False)
@@ -867,6 +885,8 @@ class ProcessingPage(QWidget):
         self._current_file = ""
         self._previous_files = []
         self._stage_map = _StageLabelMap()
+        self._all_paths = []
+        self._current_idx = 0
         for node in self._nodes:
             node.set_state(_PipelineNode.State.WAITING, animate=False)
         self._bar.set_value(0.0)
@@ -921,8 +941,41 @@ class ProcessingPage(QWidget):
             return
         if self._current_file and self._current_file != file_name:
             self._previous_files.append(self._current_file)
+            self._current_idx = max(self._current_idx, len(self._previous_files))
         self._current_file = file_name
+
         self._preview.set_image(file_name)
+
+        p = Path(file_name)
+        fmt = p.suffix.lstrip(".").upper() or "UNKNOWN"
+        dims = ""
+        size_str = ""
+        try:
+            from PIL import Image
+            with Image.open(file_name) as img:
+                w, h = img.size
+                dims = f"{w} x {h}"
+        except Exception:
+            pass
+        try:
+            sz = os.path.getsize(file_name)
+            if sz < 1024:
+                size_str = f"{sz} B"
+            elif sz < 1024 * 1024:
+                size_str = f"{sz / 1024:.1f} KB"
+            else:
+                size_str = f"{sz / (1024 * 1024):.1f} MB"
+        except Exception:
+            pass
+        self._preview.set_metadata(fmt, dims, size_str)
+
+        current = len(self._previous_files) + 1
+        next_file = ""
+        if self._all_paths:
+            idx = self._all_paths.index(file_name) if file_name in self._all_paths else -1
+            if idx >= 0 and idx + 1 < len(self._all_paths):
+                next_file = Path(self._all_paths[idx + 1]).name
+        self._preview.set_queue(current, self._total, next_file)
 
     def on_progress(self, done: int, total: int, current_file: str) -> None:
         self._done = done
@@ -934,6 +987,13 @@ class ProcessingPage(QWidget):
         if current_file and current_file != self._current_file:
             self._current_file = current_file
             self._preview.set_image(current_file)
+            current = len(self._previous_files) + 1
+            next_file = ""
+            if self._all_paths:
+                idx = self._all_paths.index(current_file) if current_file in self._all_paths else -1
+                if idx >= 0 and idx + 1 < len(self._all_paths):
+                    next_file = Path(self._all_paths[idx + 1]).name
+            self._preview.set_queue(current, self._total, next_file)
         self._recalc_eta()
 
     def on_log(self, level: str, logger: str, message: str) -> None:
@@ -947,7 +1007,8 @@ class ProcessingPage(QWidget):
         fails = []
         if self._failed_list.text():
             fails = self._failed_list.text().split("\n")
-        fails.append(f"{file_name}: {message}")
+        name = Path(file_name).name if file_name else file_name
+        fails.append(f"{name}: {message}")
         if len(fails) > 5:
             fails = fails[-5:]
         self._failed_list.setText("\n".join(fails))

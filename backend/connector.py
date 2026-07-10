@@ -143,7 +143,8 @@ class PipelineConnector:
                 if cancel_event.is_set():
                     break
 
-                self.cb.on_status(Path(image_path).name)
+                img_str = str(image_path)
+                self.cb.on_status(img_str)
                 if self._should_skip_existing(Path(image_path), job.settings):
                     succeeded += 1
                     self.cb.on_log(
@@ -151,7 +152,7 @@ class PipelineConnector:
                         f"Skipped existing output: {Path(image_path).name}",
                     )
                     self.cb.on_progress(succeeded + len(failed_files), total,
-                                        Path(image_path).name)
+                                        img_str)
                     continue
 
                 try:
@@ -162,12 +163,12 @@ class PipelineConnector:
                                    f"Completed: {Path(image_path).name}")
                 except Exception as exc:  # backend raises PipelineError + others
                     failed_files.append(image_path.name)
-                    self.cb.on_image_failed(image_path.name, str(exc))
+                    self.cb.on_image_failed(img_str, str(exc))
                     self.cb.on_log("ERROR", "PIXELFORGE",
                                    f"Failed: {image_path.name} - {exc}")
                 finally:
                     self.cb.on_progress(succeeded + len(failed_files), total,
-                                        Path(image_path).name)
+                                        str(image_path))
         finally:
             bridge.uninstall()
             self._restore_cfg(snapshot)

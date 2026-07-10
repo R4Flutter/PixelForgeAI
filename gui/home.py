@@ -800,17 +800,16 @@ class _PipelineSummary(QFrame):
             lbl.setText(v)
 
 
-class _StartProcessingButton(QWidget):
-    clicked = Signal()
+class _StartProcessingButton(QPushButton):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._count = 0
-        self._enabled = False
         self._pulse = 0.0
         self._hovered = False
         self.setFixedHeight(58)
         self.setCursor(Qt.PointingHandCursor)
+        self.setEnabled(False)
 
         if not _reduced():
             self._timer = QTimer(self)
@@ -820,7 +819,25 @@ class _StartProcessingButton(QWidget):
 
     def set_count(self, count: int) -> None:
         self._count = count
-        self._enabled = count > 0
+        self.setEnabled(count > 0)
+        self.update()
+
+    def enterEvent(self, event) -> None:
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        super().mousePressEvent(event)
+        self.update()
+
+    def mouseReleaseEvent(self, event) -> None:
+        super().mouseReleaseEvent(event)
         self.update()
 
     def paintEvent(self, event) -> None:
@@ -829,7 +846,9 @@ class _StartProcessingButton(QWidget):
         w, h = self.width(), self.height()
         r = 12
 
-        if self._enabled:
+        enabled = self.isEnabled()
+
+        if enabled:
             pulse = 0.5 + 0.15 * math.sin(self._pulse * 2 * math.pi / 60) if not _reduced() else 0.65
             c = QColor(124, 92, 255)
             c.setAlpha(int(min(255, 40 * pulse)))
@@ -837,12 +856,27 @@ class _StartProcessingButton(QWidget):
             p.setBrush(c)
             p.drawRoundedRect(0, 0, w, h, r, r)
 
-            g = QLinearGradient(0, 0, w, 0)
-            g.setColorAt(0.0, QColor("#7C5CFF"))
-            g.setColorAt(0.5, QColor("#8B5CF6"))
-            g.setColorAt(1.0, QColor("#6366F1"))
-            p.setBrush(QBrush(g))
-            p.setPen(QPen(QColor("#9A7CFF"), 1))
+            if self.isDown():
+                g = QLinearGradient(0, 0, w, 0)
+                g.setColorAt(0.0, QColor("#5A3FCC"))
+                g.setColorAt(0.5, QColor("#6B4ADB"))
+                g.setColorAt(1.0, QColor("#4F52E0"))
+                p.setBrush(QBrush(g))
+                p.setPen(QPen(QColor("#7A5CE6"), 1))
+            elif self._hovered:
+                g = QLinearGradient(0, 0, w, 0)
+                g.setColorAt(0.0, QColor("#8C6CFF"))
+                g.setColorAt(0.5, QColor("#9B6CF6"))
+                g.setColorAt(1.0, QColor("#7376F1"))
+                p.setBrush(QBrush(g))
+                p.setPen(QPen(QColor("#AA8CFF"), 1))
+            else:
+                g = QLinearGradient(0, 0, w, 0)
+                g.setColorAt(0.0, QColor("#7C5CFF"))
+                g.setColorAt(0.5, QColor("#8B5CF6"))
+                g.setColorAt(1.0, QColor("#6366F1"))
+                p.setBrush(QBrush(g))
+                p.setPen(QPen(QColor("#9A7CFF"), 1))
             p.drawRoundedRect(1, 1, w - 2, h - 2, r, r)
         else:
             p.setBrush(QColor("#241D3A"))
@@ -853,23 +887,18 @@ class _StartProcessingButton(QWidget):
         f.setPointSize(13)
         f.setWeight(QFont.DemiBold)
         p.setFont(f)
-        p.setPen(QColor("#FFFFFF") if self._enabled else QColor("#B5ADD6"))
+        p.setPen(QColor("#FFFFFF") if enabled else QColor("#B5ADD6"))
         p.drawText(QRectF(0, 6, w, 24), Qt.AlignCenter, "START PROCESSING")
 
         f2 = QFont()
         f2.setPointSize(9)
         f2.setWeight(QFont.Normal)
         p.setFont(f2)
-        p.setPen(QColor(255, 255, 255, 160) if self._enabled else QColor("#8E87AE"))
+        p.setPen(QColor(255, 255, 255, 160) if enabled else QColor("#8E87AE"))
         info = f"{self._count} Images" if self._count > 0 else "Add images to begin"
         p.drawText(QRectF(0, 30, w, 18), Qt.AlignCenter, info)
 
         p.end()
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton and self._enabled:
-            self.clicked.emit()
-        super().mousePressEvent(event)
 
 
 class _ProcessSummaryCard(QFrame):

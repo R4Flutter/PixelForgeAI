@@ -196,14 +196,16 @@ class _StatTile(QWidget):
         self._value = text
         self.update()
 
-    def animate_in(self, delay: int = 0) -> QPropertyAnimation:
+    def animate_in(self, delay: int = 0) -> QSequentialAnimationGroup:
         anim = QPropertyAnimation(self, b"entrance_offset", self)
         anim.setDuration(500)
         anim.setStartValue(30.0)
         anim.setEndValue(0.0)
         anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.setStartDelay(delay)
-        return anim
+        group = QSequentialAnimationGroup(self)
+        group.addPause(delay)
+        group.addAnimation(anim)
+        return group
 
     def _get_offset(self) -> float:
         return self._entrance_offset
@@ -356,14 +358,16 @@ class _CinematicCarousel(QWidget):
         self._filename_label.setText(Path(paths[0]).name if paths else "")
         self.setVisible(len(paths) > 0)
 
-    def animate_in(self, delay: int = 0) -> QPropertyAnimation:
+    def animate_in(self, delay: int = 0) -> QSequentialAnimationGroup:
         anim = QPropertyAnimation(self, b"entrance_offset", self)
         anim.setDuration(600)
         anim.setStartValue(40.0)
         anim.setEndValue(0.0)
         anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.setStartDelay(delay)
-        return anim
+        group = QSequentialAnimationGroup(self)
+        group.addPause(delay)
+        group.addAnimation(anim)
+        return group
 
     def _get_offset(self) -> float:
         return self._entrance_offset

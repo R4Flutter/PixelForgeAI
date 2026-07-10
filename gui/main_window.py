@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
         outgoing = self._stack.currentWidget()
         incoming = self._stack.widget(idx)
         if outgoing is incoming:
+            self._sidebar.set_active(idx)
             return
 
         if outgoing is None:
@@ -173,37 +174,40 @@ class MainWindow(QMainWindow):
         self._foot_left.setText(f"v{APP_VERSION}")
 
     def _start_job(self, paths: list) -> None:
-        if self._is_running() or not paths:
-            return
-        if not self._entitlement.is_unlocked:
-            self._pending_paths = list(paths)
-            self._show_trial_expired()
-            return
-        self._on_settings_changed()
+        try:
+            if self._is_running() or not paths:
+                return
+            if not self._entitlement.is_unlocked:
+                self._pending_paths = list(paths)
+                self._show_trial_expired()
+                return
+            self._on_settings_changed()
 
-        job = JobRequest.from_images(paths, self._settings)
-        total = len(job.resolve_image_paths())
-        if total == 0:
-            self._processing.on_failed("No valid images were selected.")
+            job = JobRequest.from_images(paths, self._settings)
+            total = len(job.resolve_image_paths())
+            if total == 0:
+                self._processing.on_failed("No valid images were selected.")
+                self._navigate(1)
+                return
+
+            self._worker = ProcessingWorker(job)
+            w = self._worker
+            w.stage.connect(self._processing.on_stage)
+            w.status.connect(self._processing.on_status)
+            w.progress.connect(self._processing.on_progress)
+            w.log_line.connect(self._processing.on_log)
+            w.image_failed.connect(self._processing.on_image_failed)
+            w.failed_job.connect(self._on_failed_job)
+            w.finished_job.connect(self._on_finished_job)
+            w.finished.connect(w.deleteLater)
+
+            self._last_output = self._resolved_output(self._settings)
+            self._processing.begin(total, paths=list(job.sources))
             self._navigate(1)
-            return
-
-        self._worker = ProcessingWorker(job)
-        w = self._worker
-        w.stage.connect(self._processing.on_stage)
-        w.status.connect(self._processing.on_status)
-        w.progress.connect(self._processing.on_progress)
-        w.log_line.connect(self._processing.on_log)
-        w.image_failed.connect(self._processing.on_image_failed)
-        w.failed_job.connect(self._on_failed_job)
-        w.finished_job.connect(self._on_finished_job)
-        w.finished.connect(w.deleteLater)
-
-        self._last_output = self._resolved_output(self._settings)
-        self._processing.begin(total)
-        self._navigate(1)
-        self._set_running(True)
-        w.start()
+            self._set_running(True)
+            w.start()
+        except Exception as exc:
+            log.error("_start_job failed: %s", exc)
 
     def _pause(self) -> None:
         if self._worker is not None:
@@ -233,10 +237,12 @@ class MainWindow(QMainWindow):
     def _on_failed_job(self, message: str) -> None:
         self._processing.on_failed(message)
         self._set_running(False)
+        self._worker = None
 
     def _on_finished_job(self, summary: RunSummary) -> None:
         self._processing.on_summary(summary)
         self._set_running(False)
+        self._worker = None
         from models.pipeline_result import PipelineResult
         result = PipelineResult(
             total=summary.total,
@@ -250,8 +256,6 @@ class MainWindow(QMainWindow):
         self._results.show_result(result, self._last_output)
         self._navigate(2)
         self._refresh_footer()
-        if self._worker is not None:
-            self._worker = None
 
     def _process_again(self) -> None:
         self._processing.reset()
@@ -261,7 +265,12 @@ class MainWindow(QMainWindow):
         return self._worker is not None and self._worker.isRunning()
 
     def _set_running(self, running: bool) -> None:
-        self._home._process.setEnabled(not running)
+        btn = self._home._process
+        if running:
+            btn.setEnabled(False)
+        else:
+            btn.setEnabled(btn._count > 0)
+        btn.update()
 
     @staticmethod
     def _resolved_output(settings: Settings) -> str:
