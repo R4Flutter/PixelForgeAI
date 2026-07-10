@@ -1,0 +1,11 @@
+# PixelForgeAI - GUI layer dependencies
+# Install alongside the existing backend requirements (requirements.txt):
+#   pip install -r requirements-gui.txt
+#
+# Do NOT remove or alter the backend's own requirements.txt.
+
+PySide6>=6.6,<7
+
+# Licence verification (Ed25519 signatures). Pre-built wheels for
+# Windows / macOS / Linux, so it builds cleanly into the PyInstaller bundle.
+cryptography>=41

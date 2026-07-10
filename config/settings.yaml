@@ -1,0 +1,8 @@
+input_dir: input/original
+output_no_bg: output/no_bg
+output_upscaled: output/upscaled
+output_final: output/final
+
+upscale_factor: 4
+final_size: 4000
+overwrite: true

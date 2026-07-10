@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C . rev-parse --is-inside-work-tree)",
+      "Bash(gh auth *)",
+      "Bash(git --version)",
+      "Bash(git lfs *)",
+      "Read(//mnt/c/\\\\$Recycle.Bin//**)"
+    ]
+  }
+}

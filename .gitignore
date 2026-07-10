@@ -1,0 +1,39 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+venv310/
+.venv-linux/
+.venv/
+
+# Logs
+logs/
+
+# Output images
+output/
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Licensing secrets
+tools/keys/*.pem
+config/cache/
+config/work/
+
+# Build outputs
+build/
+dist/
+*.spec.bak
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+
+# Keep model weights (RealESRGAN_x4plus.pth, ~64 MB) - they are the product's
+# brain and required at build time. Do NOT gitignore models/.

@@ -1,0 +1,5 @@
+rembg
+pillow
+opencv-python
+pyyaml
+tqdm
