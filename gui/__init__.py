@@ -1,30 +1,29 @@
 """
 PixelForgeAI - Presentation layer.
 
-Pure UI. These modules NEVER import or call the AI backend directly. The only
-contract they hold is with ``backend.job`` (the immutable JobRequest/Settings
-dataclasses) and with Qt. All backend interaction is delegated to
-``backend.worker`` by the main window.
+Pure UI. Uses EventBus for communication with services layer. Never
+imports or calls AI backend directly. Only contract with backend is
+via ``models`` dataclasses and the ``event_bus``.
 
 Pages
 -----
-main_window - ``QMainWindow`` with a sidebar + ``QStackedWidget``.
-home       - drag & drop, browse, preview grid, selected-image count.
-processing - progress bar, current file, elapsed / ETA, pause / resume / cancel,
-             live log console.
-success    - completion summary, open output folder, process again.
-settings   - output folder, format, output size, GPU/CPU, batch, theme,
-             licence info.
-about      - version, developer, website, support.
+main_window  - ``QMainWindow`` with sidebar + ``QStackedWidget``.
+sidebar      - Navigation sidebar.
+home         - drag & drop, browse, image carousel, pipeline builder.
+processing   - progress bar, stage indicators, live log console.
+results      - completion summary, open folder, process again.
+settings     - output folder, format, pipeline config, licence.
+about        - version, developer, support.
 """
 
 from __future__ import annotations
 
 __all__ = [
     "main_window",
+    "sidebar",
     "home",
     "processing",
-    "success",
+    "results",
     "settings_page",
     "about",
 ]

@@ -1,19 +1,11 @@
-
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
-from PySide6.QtCore import Qt, QSize, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QDialog,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QMainWindow,
-    QStackedWidget,
-    QVBoxLayout,
-    QWidget,
+    QDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
+    QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from backend.entitlement import EntitlementManager, EntitlementState
@@ -21,33 +13,37 @@ from backend.job import JobRequest, RunSummary, Settings
 from backend.state import load_settings, save_settings
 from backend.updater import APP_NAME, APP_VERSION
 from backend.worker import ProcessingWorker
-from components.buttons import NavButton
-from components.icons import icon, pixmap
+from commands.base import CommandDispatcher
+from events.base import EventBus
+from events.pipeline_events import (
+    PipelineCompletedEvent,
+    PipelineStartedEvent,
+)
+from dependency import Dependency
 from gui.about import AboutPage
 from gui.home import HomePage
 from gui.processing import ProcessingPage
+from gui.results import ResultsPage
 from gui.settings_page import SettingsPage
-from gui.success import SuccessPage
+from gui.sidebar import Sidebar
 from gui.trial_expired import TrialExpiredDialog
 from gui.transition_manager import TransitionManager
+from plogging.logger import get_logger
 
-
-_NAV = (
-    ("Home", "home", 0),
-    ("Processing", "image", 1),
-    ("Results", "success", 2),
-    ("Settings", "settings", 3),
-    ("About", "info", 4),
-)
+log = get_logger(__name__)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, di: Dependency) -> None:
         super().__init__()
         self.setObjectName("AppRoot")
-        self.setWindowTitle(f"{APP_NAME} — {APP_VERSION}")
+        self.setWindowTitle(f"{APP_NAME} â€” {APP_VERSION}")
         self.resize(1180, 760)
         self.setMinimumSize(960, 640)
+
+        self._di = di
+        self._event_bus: EventBus = di.event_bus
+        self._dispatcher: CommandDispatcher = di.dispatcher
 
         self._settings: Settings = load_settings()
         self._worker: Optional[ProcessingWorker] = None
@@ -63,7 +59,9 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        lay.addWidget(self._build_sidebar())
+        self._sidebar = Sidebar()
+        self._sidebar.on_navigate(self._navigate)
+        lay.addWidget(self._sidebar)
 
         body = QVBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
@@ -71,13 +69,13 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         self._home = HomePage()
         self._processing = ProcessingPage()
-        self._success = SuccessPage()
+        self._results = ResultsPage(self._event_bus)
         self._settings_page = SettingsPage(self._entitlement)
         self._about = AboutPage()
 
         self._transition.set_depth_layers(self._home._bg, self._home._glow)
 
-        for w in (self._home, self._processing, self._success,
+        for w in (self._home, self._processing, self._results,
                   self._settings_page, self._about):
             self._stack.addWidget(w)
         body.addWidget(self._stack, 1)
@@ -98,56 +96,40 @@ class MainWindow(QMainWindow):
         lay.addLayout(body, 1)
 
         self._wire_pages()
+        self._wire_event_bus()
         self._settings_page.set_settings(self._settings)
         self._navigate(0)
         self._refresh_footer()
         if self._entitlement.evaluate().state is EntitlementState.LOCKED:
             QTimer.singleShot(0, self._show_trial_expired)
 
-    def _build_sidebar(self) -> QFrame:
-        bar = QFrame()
-        bar.setObjectName("Sidebar")
-        bar.setFixedWidth(232)
-        v = QVBoxLayout(bar)
-        v.setContentsMargins(18, 24, 18, 18)
-        v.setSpacing(6)
+    def _wire_event_bus(self) -> None:
+        self._event_bus.on(PipelineCompletedEvent, self._on_pipeline_completed)
+        self._event_bus.on(PipelineStartedEvent, self._on_pipeline_started)
 
-        brand = QHBoxLayout()
-        brand.setSpacing(12)
-        logo = QLabel()
-        logo.setPixmap(pixmap("logo", 34, color="#6366F1", accent="#A5B4FC"))
-        brand.addWidget(logo, alignment=Qt.AlignTop)
-        bt = QVBoxLayout()
-        bt.setSpacing(0)
-        name = QLabel(APP_NAME)
-        name.setObjectName("BrandName")
-        tag = QLabel("AI IMAGE PIPELINE")
-        tag.setObjectName("BrandTag")
-        bt.addWidget(name)
-        bt.addWidget(tag)
-        brand.addLayout(bt)
-        brand.addStretch(1)
-        v.addLayout(brand)
+    def _on_pipeline_completed(self, event: PipelineCompletedEvent) -> None:
+        from models.pipeline_result import PipelineResult
+        result = PipelineResult(
+            total=event.statistics.total_images,
+            succeeded=event.statistics.succeeded,
+            failed=event.statistics.failed,
+            elapsed_seconds=event.statistics.elapsed_seconds,
+            output_folder=event.output_folder,
+        )
+        self._results.show_result(result, event.output_folder)
+        self._navigate(2)
+        self._refresh_footer()
 
-        v.addSpacing(20)
-
-        self._nav_buttons: List[NavButton] = []
-        for label, icon_name, idx in _NAV:
-            btn = NavButton(icon(icon_name, 18, color="#8A90A6",
-                                 accent="#6366F1"), label)
-            btn.clicked.connect(lambda _checked=False, i=idx: self._navigate(i))
-            v.addWidget(btn)
-            self._nav_buttons.append(btn)
-
-        v.addStretch(1)
-        return bar
+    def _on_pipeline_started(self, event: PipelineStartedEvent) -> None:
+        self._processing.begin(event.total_images)
+        self._navigate(1)
 
     def _wire_pages(self) -> None:
         self._home.start_requested.connect(self._start_job)
         self._processing.pause_requested.connect(self._pause)
         self._processing.resume_requested.connect(self._resume)
         self._processing.cancel_requested.connect(self._cancel)
-        self._success.process_again.connect(self._process_again)
+        self._results.process_again.connect(self._process_again)
         self._settings_page.settings_changed.connect(self._on_settings_changed)
 
     def _navigate(self, idx: int) -> None:
@@ -160,8 +142,7 @@ class MainWindow(QMainWindow):
 
         if outgoing is None:
             self._stack.setCurrentIndex(idx)
-            for i, btn in enumerate(self._nav_buttons):
-                btn.setChecked(i == idx)
+            self._sidebar.set_active(idx)
             self._last_nav_idx = idx
             return
 
@@ -169,8 +150,7 @@ class MainWindow(QMainWindow):
 
         def _set_index() -> None:
             self._stack.setCurrentIndex(idx)
-            for i, btn in enumerate(self._nav_buttons):
-                btn.setChecked(i == idx)
+            self._sidebar.set_active(idx)
 
         self._transition.cinematic_transition(
             outgoing, incoming, direction=direction, on_finished=_set_index
@@ -187,7 +167,7 @@ class MainWindow(QMainWindow):
         if e.state is EntitlementState.LICENSED:
             self._foot_right.setText("Pro")
         elif e.state is EntitlementState.TRIAL:
-            self._foot_right.setText(f"Trial · {e.trial_days_remaining}d left")
+            self._foot_right.setText(f"Trial Â· {e.trial_days_remaining}d left")
         else:
             self._foot_right.setText("Trial expired")
         self._foot_left.setText(f"v{APP_VERSION}")
@@ -257,7 +237,17 @@ class MainWindow(QMainWindow):
     def _on_finished_job(self, summary: RunSummary) -> None:
         self._processing.on_summary(summary)
         self._set_running(False)
-        self._success.show_summary(summary, self._last_output)
+        from models.pipeline_result import PipelineResult
+        result = PipelineResult(
+            total=summary.total,
+            succeeded=summary.succeeded,
+            failed=summary.failed,
+            elapsed_seconds=summary.elapsed_seconds,
+            failed_files=list(summary.failed_files),
+            cancelled=summary.cancelled,
+            output_folder=self._last_output,
+        )
+        self._results.show_result(result, self._last_output)
         self._navigate(2)
         self._refresh_footer()
         if self._worker is not None:
@@ -272,10 +262,6 @@ class MainWindow(QMainWindow):
 
     def _set_running(self, running: bool) -> None:
         self._home._process.setEnabled(not running)
-        for i, btn in enumerate(self._nav_buttons):
-            if i == 1:
-                continue
-            btn.setEnabled(not running)
 
     @staticmethod
     def _resolved_output(settings: Settings) -> str:

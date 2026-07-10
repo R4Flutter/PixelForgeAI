@@ -1,0 +1,1 @@
+from pipeline.validators.image_validator import ImageValidator

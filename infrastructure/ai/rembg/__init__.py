@@ -1,0 +1,1 @@
+from infrastructure.ai.rembg.background_remover import BackgroundRemover

@@ -1,0 +1,1 @@
+from infrastructure.ai.realesrgan.upscaler import RealESRGANUpscaler

@@ -9,7 +9,7 @@ from PySide6.QtCore import (
     QPoint, QRect, QRectF, QSize,
 )
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QLinearGradient, QPainter, QPainterPath,
+    QBrush, QColor, QFont, QImage, QLinearGradient, QPainter, QPainterPath,
     QPen, QPixmap, QRadialGradient,
 )
 from PySide6.QtWidgets import (
@@ -40,6 +40,54 @@ _COLOR_TEXT_MUTED = "#6B7186"
 
 def _reduced() -> bool:
     return os.environ.get("PIXELFORGEAI_REDUCED_MOTION", "").strip() not in ("", "0", "false")
+
+
+def _generate_demo_images() -> "List[str]":
+    """Generate three demo PNGs so the carousel has content on first launch.
+
+    Returns absolute paths to the freshly written files, or [] on failure.
+    Files persist in the OS temp dir; overwriting is fine across launches.
+    """
+    import tempfile
+    from pathlib import Path
+
+    try:
+        demo_dir = Path(tempfile.gettempdir()) / "pixelforge_demo"
+        demo_dir.mkdir(parents=True, exist_ok=True)
+        specs = [
+            ("demo_aurora.png", ("#7C5CFF", "#EC4899"), "AURORA"),
+            ("demo_ocean.png",  ("#38BDF8", "#8B5CF6"), "OCEAN DRIFT"),
+            ("demo_solar.png",  ("#FBBF24", "#F43F5E"), "SOLAR BURST"),
+        ]
+        paths: "List[str]" = []
+        for fname, (c1, c2), label in specs:
+            fpath = demo_dir / fname
+            img = QImage(640, 480, QImage.Format_RGB32)
+            p = QPainter(img)
+            p.setRenderHint(QPainter.Antialiasing)
+
+            g = QLinearGradient(0, 0, 640, 480)
+            g.setColorAt(0.0, QColor(c1))
+            g.setColorAt(1.0, QColor(c2))
+            p.fillRect(0, 0, 640, 480, g)
+
+            vg = QLinearGradient(0, 0, 0, 480)
+            vg.setColorAt(0.0, QColor(0, 0, 0, 90))
+            vg.setColorAt(1.0, QColor(0, 0, 0, 0))
+            p.fillRect(0, 0, 640, 480, vg)
+
+            f = QFont("Inter")
+            f.setPointSize(46)
+            f.setWeight(QFont.DemiBold)
+            p.setFont(f)
+            p.setPen(QColor(255, 255, 255, 230))
+            p.drawText(img.rect(), Qt.AlignCenter, label)
+            p.end()
+            img.save(str(fpath), "PNG")
+            paths.append(str(fpath))
+        return paths
+    except Exception:
+        return []
 
 
 class _AmbientBg(QWidget):
@@ -710,6 +758,48 @@ class _OutputSettingsBar(QWidget):
         lay.addWidget(self._open_after)
 
 
+class _PipelineSummary(QFrame):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("Card")
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(8)
+
+        title = QLabel("PIPELINE SUMMARY")
+        title.setObjectName("SectionLabel")
+        lay.addWidget(title)
+
+        grid = QWidget()
+        glay = QVBoxLayout(grid)
+        glay.setContentsMargins(0, 0, 0, 0)
+        glay.setSpacing(6)
+
+        self._rows: list[QLabel] = []
+        for label, default in [("Images", "--"), ("Format", "PNG"), ("Est. Time", "--")]:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            lbl = QLabel(label)
+            lbl.setStyleSheet(f"color: {_COLOR_TEXT_MUTED}; font-size: 10px;")
+            val = QLabel(default)
+            val.setStyleSheet(
+                f"color: {_COLOR_TEXT_PRIMARY}; font-size: 10px; font-weight: 600;"
+            )
+            val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            row.addWidget(lbl, 1)
+            row.addWidget(val)
+            glay.addLayout(row)
+            self._rows.append(val)
+
+        lay.addWidget(grid)
+
+    def update_summary(self, count: int) -> None:
+        vals = [str(count), "PNG", f"{count * 3}s"]
+        for lbl, v in zip(self._rows, vals):
+            lbl.setText(v)
+
+
 class _StartProcessingButton(QWidget):
     clicked = Signal()
 
@@ -755,22 +845,22 @@ class _StartProcessingButton(QWidget):
             p.setPen(QPen(QColor("#9A7CFF"), 1))
             p.drawRoundedRect(1, 1, w - 2, h - 2, r, r)
         else:
-            p.setBrush(QColor("#1A1D2B"))
-            p.setPen(QPen(QColor("#2B3042"), 1))
+            p.setBrush(QColor("#241D3A"))
+            p.setPen(QPen(QColor("#4A3F7A"), 1))
             p.drawRoundedRect(0, 0, w - 1, h - 1, r, r)
 
         f = QFont()
         f.setPointSize(13)
         f.setWeight(QFont.DemiBold)
         p.setFont(f)
-        p.setPen(QColor("#FFFFFF") if self._enabled else QColor("#54586A"))
+        p.setPen(QColor("#FFFFFF") if self._enabled else QColor("#B5ADD6"))
         p.drawText(QRectF(0, 6, w, 24), Qt.AlignCenter, "START PROCESSING")
 
         f2 = QFont()
         f2.setPointSize(9)
         f2.setWeight(QFont.Normal)
         p.setFont(f2)
-        p.setPen(QColor(255, 255, 255, 160) if self._enabled else QColor("#4F5364"))
+        p.setPen(QColor(255, 255, 255, 160) if self._enabled else QColor("#8E87AE"))
         info = f"{self._count} Images" if self._count > 0 else "Add images to begin"
         p.drawText(QRectF(0, 30, w, 18), Qt.AlignCenter, info)
 
@@ -780,6 +870,168 @@ class _StartProcessingButton(QWidget):
         if event.button() == Qt.LeftButton and self._enabled:
             self.clicked.emit()
         super().mousePressEvent(event)
+
+
+class _ProcessSummaryCard(QFrame):
+    """Premium side-panel: image count, pipeline checklist, est. stats, start CTA."""
+
+    job_start = Signal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("ProcessQueueCard")
+        self.setMinimumWidth(220)
+        self.setMaximumWidth(280)
+        self.setStyleSheet(
+            "#ProcessQueueCard {"
+            "  background-color: #0E0F14;"
+            "  border: 1px solid #1E2230;"
+            "  border-radius: 14px;"
+            "}"
+            "#ProcessQueueCard QLabel { background: transparent; }"
+            "#ProcessQueueCard .stageChk { color: #34D399; font-size: 10px; font-weight: 700; }"
+            "#ProcessQueueCard .stageName { color: #C4C8D6; font-size: 10px; font-weight: 500; }"
+            "#ProcessQueueCard .num { color: #F4F5FB; }"
+            "#ProcessQueueCard .unit { color: #8A90A6; }"
+            "#ProcessQueueCard .meta { color: #6B7186; }"
+        )
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(18, 16, 18, 14)
+        outer.setSpacing(8)
+
+        # ── Header row: status dot + section label ──
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        dot = QLabel()
+        dot.setFixedSize(8, 8)
+        dot.setStyleSheet("background-color: #34D399; border-radius: 4px;")
+        header.addWidget(dot)
+        header_lbl = QLabel("PROCESS QUEUE")
+        header_lbl.setStyleSheet(
+            "color: #C4C8D6; font-size: 10px; font-weight: 600; letter-spacing: 1.4px;"
+        )
+        header.addWidget(header_lbl)
+        header.addStretch(1)
+        outer.addLayout(header)
+
+        # ── Image count display ──
+        count_row = QHBoxLayout()
+        count_row.setSpacing(6)
+        count_row.setAlignment(Qt.AlignBottom | Qt.AlignLeft)
+        self._count_lbl = QLabel("0")
+        self._count_lbl.setStyleSheet(
+            "color: #F4F5FB; font-size: 38px; font-weight: 700; letter-spacing: -1.2px;"
+        )
+        count_row.addWidget(self._count_lbl)
+        unit = QLabel("IMAGES")
+        unit.setStyleSheet(
+            "color: #8A90A6; font-size: 10px; font-weight: 600; letter-spacing: 1.2px;"
+        )
+        unit.setContentsMargins(0, 0, 0, 8)
+        unit.setAlignment(Qt.AlignBottom | Qt.AlignLeft)
+        count_row.addWidget(unit, 1)
+        outer.addLayout(count_row)
+
+        # ── Hairline divider ──
+        div = QFrame()
+        div.setFixedHeight(1)
+        div.setStyleSheet("background-color: #1E2230; border: none;")
+        outer.addWidget(div)
+
+        # ── Pipeline stage checklist ──
+        self._stages_box = QVBoxLayout()
+        self._stages_box.setSpacing(4)
+        stages_holder = QWidget()
+        stages_holder.setLayout(self._stages_box)
+        outer.addWidget(stages_holder)
+
+        # ── Stats grid (RAM + Time) ──
+        stats_row = QHBoxLayout()
+        stats_row.setSpacing(16)
+        stats_col1 = QVBoxLayout()
+        stats_col1.setSpacing(2)
+        self._stats_ram = QLabel("0 MB")
+        self._stats_ram.setStyleSheet("color: #F4F5FB; font-size: 13px; font-weight: 600;")
+        ram_meta = QLabel("RAM est.")
+        ram_meta.setStyleSheet(
+            "color: #6B7186; font-size: 9px; letter-spacing: 0.6px;"
+        )
+        stats_col1.addWidget(self._stats_ram)
+        stats_col1.addWidget(ram_meta)
+
+        stats_col2 = QVBoxLayout()
+        stats_col2.setSpacing(2)
+        self._stats_time = QLabel("0s")
+        self._stats_time.setStyleSheet("color: #F4F5FB; font-size: 13px; font-weight: 600;")
+        time_meta = QLabel("Time est.")
+        time_meta.setStyleSheet(
+            "color: #6B7186; font-size: 9px; letter-spacing: 0.6px;"
+        )
+        stats_col2.addWidget(self._stats_time)
+        stats_col2.addWidget(time_meta)
+        stats_row.addLayout(stats_col1)
+        stats_row.addLayout(stats_col2)
+        stats_row.addStretch(1)
+        outer.addLayout(stats_row)
+
+        outer.addSpacing(2)
+
+        # ── Start CTA ──
+        self._button = _StartProcessingButton()
+        self._button.setFixedHeight(54)
+        self._button.clicked.connect(self.job_start.emit)
+        outer.addWidget(self._button)
+
+        # ── Hint line ──
+        self._hint = QLabel("Add images to begin ›")
+        self._hint.setAlignment(Qt.AlignCenter)
+        self._hint.setStyleSheet("color: #6B7186; font-size: 10px; font-weight: 500;")
+        outer.addWidget(self._hint)
+
+        self._stages: List[str] = []
+        self.set_count(0, [])
+
+    @property
+    def process_button(self) -> "_StartProcessingButton":
+        return self._button
+
+    def set_count(self, count: int, stages: List[str]) -> None:
+        self._stages = list(stages)
+        self._button.set_count(count)
+        self._count_lbl.setText(str(count))
+        self._stats_ram.setText(f"{count * 18} MB")
+        self._stats_time.setText(f"{count * 3}s")
+
+        if count == 0:
+            self._hint.setText("Add images to begin ›")
+        elif count == 1:
+            self._hint.setText("Ready to process 1 image")
+        else:
+            self._hint.setText(f"Ready to process {count} images")
+
+        # rebuild stage rows
+        while self._stages_box.count():
+            it = self._stages_box.takeAt(0)
+            w = it.widget()
+            if w is not None:
+                w.deleteLater()
+        for stage in self._stages:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            chk = QLabel("✓")
+            chk.setProperty("class", "stageChk")
+            chk.setStyleSheet("color: #34D399; font-size: 10px; font-weight: 700;")
+            chk.setFixedWidth(10)
+            lbl = QLabel(stage)
+            lbl.setStyleSheet("color: #C4C8D6; font-size: 10px; font-weight: 500;")
+            row.addWidget(chk)
+            row.addWidget(lbl)
+            row.addStretch(1)
+            holder = QWidget()
+            holder.setLayout(row)
+            holder.setStyleSheet("background: transparent;")
+            self._stages_box.addWidget(holder)
 
 
 class _PreviewBadgeGrid(QWidget):
@@ -908,15 +1160,9 @@ class HomePage(QWidget):
         inner_lay.setContentsMargins(28, 20, 28, 20)
         inner_lay.setSpacing(14)
 
-        top_row = QHBoxLayout()
-        top_row.setSpacing(16)
         title = QLabel("Pipeline Builder")
         title.setObjectName("PageTitle")
-        top_row.addWidget(title)
-        top_row.addStretch(1)
-        self._flow_bar = _FlowPresetBar()
-        top_row.addWidget(self._flow_bar, 1)
-        inner_lay.addLayout(top_row)
+        inner_lay.addWidget(title)
 
         main_content = QHBoxLayout()
         main_content.setSpacing(14)
@@ -932,15 +1178,21 @@ class HomePage(QWidget):
         left_col.addWidget(self._job_info, 1)
 
         self._badge_grid = CoverFlowCarousel()
-        self._badge_grid.setMinimumHeight(260)
+        self._badge_grid.setMinimumHeight(200)
         self._badge_grid.setStyleSheet("background: transparent; border: none;")
         self._badge_grid.images_changed.connect(self._on_count_changed)
-        left_col.addWidget(self._badge_grid, 2)
+        left_col.addWidget(self._badge_grid, 1)
 
-        main_content.addLayout(left_col, 2)
+        main_content.addLayout(left_col, 1)
+
+        right_side = QVBoxLayout()
+        right_side.setSpacing(0)
+
+        right_row = QHBoxLayout()
+        right_row.setSpacing(10)
 
         pipe_col = QVBoxLayout()
-        pipe_col.setSpacing(12)
+        pipe_col.setSpacing(10)
         pipe_label = QLabel("PIPELINE")
         pipe_label.setObjectName("SectionLabel")
         pipe_col.addWidget(pipe_label)
@@ -968,33 +1220,42 @@ class HomePage(QWidget):
             self._pipeline_cards.append(card)
             pipe_col.addWidget(card)
 
-        pipe_col.addStretch(1)
-        main_content.addLayout(pipe_col, 2)
+        self._pipeline_summary = _PipelineSummary()
+        pipe_col.addWidget(self._pipeline_summary)
 
+        self._process = _StartProcessingButton()
+        self._process.setFixedWidth(340)
+        self._process.clicked.connect(self._emit_start)
+
+        process_row = QHBoxLayout()
+        process_row.setSpacing(0)
+        process_row.setContentsMargins(0, 0, 0, 0)
+        process_row.addStretch(1)
+        process_row.addWidget(self._process)
+        process_row.addStretch(1)
+        pipe_col.addLayout(process_row)
+        pipe_col.addStretch(1)
+
+        right_row.addLayout(pipe_col, 1)
+
+        props_col = QVBoxLayout()
+        props_col.setSpacing(10)
         self._props_panel = _PropertiesPanel()
-        main_content.addWidget(self._props_panel, 2)
+        props_col.addWidget(self._props_panel)
+        props_col.addStretch(1)
+
+        right_row.addLayout(props_col, 1)
+
+        right_side.addLayout(right_row, 1)
+        main_content.addLayout(right_side, 2)
 
         inner_lay.addLayout(main_content, 1)
-
-        self._output_bar = _OutputSettingsBar()
-        inner_lay.addWidget(self._output_bar)
-
-        start_row = QHBoxLayout()
-        start_row.setSpacing(14)
-        start_row.addStretch(1)
-        self._process = _StartProcessingButton()
-        self._process.setFixedWidth(400)
-        self._process.clicked.connect(self._emit_start)
-        start_row.addWidget(self._process)
-        start_row.addStretch(1)
-        inner_lay.addLayout(start_row)
 
         scroll.setWidget(inner)
         root.addWidget(scroll, 1)
 
         self._drop.urls_dropped.connect(self._on_drop)
         self._drop.clicked.connect(self._browse_files)
-        self._flow_bar.current_changed.connect(self._on_flow_changed)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -1009,9 +1270,6 @@ class HomePage(QWidget):
                     card.set_expanded(False)
             self._props_panel.show_panel(title)
 
-    def _on_flow_changed(self, preset: str) -> None:
-        pass
-
     def _on_drop(self, paths: list) -> None:
         self._badge_grid.add_paths(paths)
         self._on_count_changed()
@@ -1019,6 +1277,7 @@ class HomePage(QWidget):
     def _on_count_changed(self, *_args) -> None:
         count = len(self._badge_grid.get_paths())
         self._job_info.update_stats(count)
+        self._pipeline_summary.update_summary(count)
         self._process.set_count(count)
         self._process.update()
         self.selection_changed.emit(count)

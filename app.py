@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -10,6 +9,7 @@ from PySide6.QtWidgets import QApplication
 
 from backend.state import paths
 from backend.updater import APP_NAME
+from bootstrap import bootstrap
 from gui.main_window import MainWindow
 from gui.splash import SplashScreen
 
@@ -35,8 +35,9 @@ def main() -> int:
 
     _load_theme(app, "dark")
 
+    di = bootstrap()
     splash = SplashScreen()
-    window = MainWindow()
+    window = MainWindow(di)
     splash.entered.connect(lambda: splash.finish_and_close(window))
     splash.show()
     return app.exec()

@@ -1,0 +1,1 @@
+from infrastructure.thumbnails.thumbnail_generator import ThumbnailGenerator
