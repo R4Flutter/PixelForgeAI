@@ -1,10 +1,3 @@
-"""
-settings_page.py
-----------------
-User-tunable settings bound 1:1 to backend.job.Settings.
-
-This page is presentation only: it never imports or calls the AI pipeline.
-"""
 from __future__ import annotations
 
 from typing import Optional
@@ -18,6 +11,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QScroller,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -27,11 +22,7 @@ from backend import license_config
 from backend.entitlement import EntitlementManager
 from backend.job import (
     BackgroundMode,
-    ConflictPolicy,
     DeviceMode,
-    FitMode,
-    MAX_OUTPUT_DIM,
-    MIN_OUTPUT_DIM,
     MetadataPolicy,
     OutputFormat,
     QualityPreset,
@@ -39,13 +30,19 @@ from backend.job import (
     UpscaleMode,
 )
 from backend.license import LicenseTier
-from components.buttons import PrimaryButton, SecondaryButton, GhostButton
+from components.buttons import GhostButton, PrimaryButton, SecondaryButton
 from components.cards import SectionCard
 from components.icons import icon
 
+_COLOR_ACTIVE = "#7C5CFF"
+_COLOR_CARD = "#12141C"
+_COLOR_BORDER = "#1E2230"
+_COLOR_TEXT_PRIMARY = "#F4F5FB"
+_COLOR_TEXT_SECONDARY = "#C4C8D6"
+_COLOR_TEXT_MUTED = "#6B7186"
+
 
 class SettingsPage(QWidget):
-    """Settings form + licence activation."""
 
     settings_changed = Signal()
 
@@ -55,25 +52,162 @@ class SettingsPage(QWidget):
         self._ent = entitlement
         self._loading = False
 
-        root = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical {"
+            "  background: transparent; width: 6px; margin: 2px 2px 2px 0;"
+            "}"
+            "QScrollBar::handle:vertical {"
+            "  background: #262A37; border-radius: 3px; min-height: 30px;"
+            "  margin: 0;"
+            "}"
+            "QScrollBar::handle:vertical:hover {"
+            "  background: #383E54;"
+            "}"
+            "QScrollBar::handle:vertical:pressed {"
+            "  background: #4F5364;"
+            "}"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+            "  height: 0; border: none;"
+            "}"
+            "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+            "  background: transparent; border: none;"
+            "}"
+        )
+
+        try:
+            QScroller.grabGesture(scroll.viewport(), QScroller.LeftMouseButtonGesture)
+            scroller = QScroller.scroller(scroll.viewport())
+            prop = scroller.scrollerProperties()
+            prop.setScrollMetric(QScroller.ScrollMetric.MaximumVelocity, 0.7)
+            prop.setScrollMetric(QScroller.ScrollMetric.DraggingAcceleration, 0.6)
+            prop.setScrollMetric(QScroller.ScrollMetric.ScrollingAcceleration, 0.6)
+            prop.setScrollMetric(QScroller.ScrollMetric.SnapTime, 0.2)
+            scroller.setScrollerProperties(prop)
+        except Exception:
+            pass
+
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        root = QVBoxLayout(inner)
         root.setContentsMargins(40, 32, 40, 32)
         root.setSpacing(20)
 
-        title = QLabel("Settings")
-        title.setObjectName("PageTitle")
-        sub = QLabel("Output, quality, compute, file handling, and licence.")
+        header = QLabel("Settings")
+        header.setObjectName("PageTitle")
+        root.addWidget(header)
+
+        sub = QLabel("Output, quality, pipeline flow, compute, advanced options, and licence.")
         sub.setObjectName("PageSubtitle")
-        root.addWidget(title)
         root.addWidget(sub)
 
+        root.addWidget(self._build_flow_card())
         root.addWidget(self._build_output_card())
         root.addWidget(self._build_quality_card())
         root.addWidget(self._build_compute_card())
+        root.addWidget(self._build_advanced_card())
         root.addWidget(self._build_license_card())
         root.addStretch(1)
 
+        scroll.setWidget(inner)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(scroll, 1)
+
         self._refresh_dynamic_controls()
         self._refresh_license()
+
+    # ------------------------------------------------------------------ #
+    # Pipeline Flow
+    # ------------------------------------------------------------------ #
+    def _build_flow_card(self) -> SectionCard:
+        card = SectionCard("Pipeline Flow")
+        desc = QLabel(
+            "Choose which stages run when you start processing. "
+            "Unchecked stages are skipped entirely."
+        )
+        desc.setObjectName("FieldHint")
+        desc.setWordWrap(True)
+        card.addWidget(desc)
+
+        flow_row = QHBoxLayout()
+        flow_row.setSpacing(8)
+
+        self._stage_checks: dict[str, QCheckBox] = {}
+        stage_defs = [
+            ("Remove Background", "person_remove", "Removes backgrounds from photos"),
+            ("AI Upscale", "auto_awesome", "Upscales resolution up to 8x"),
+            ("Resize", "photo_size_select_large", "Resizes to exact dimensions"),
+            ("Output", "save", "Saves the final result to disk"),
+        ]
+        for name, ic, tip in stage_defs:
+            box = QWidget()
+            box.setObjectName("StageCheck")
+            box.setStyleSheet(f"""
+                #StageCheck {{
+                    background-color: {_COLOR_CARD};
+                    border: 1px solid {_COLOR_BORDER};
+                    border-radius: 12px;
+                    padding: 14px 16px;
+                }}
+                #StageCheck:hover {{
+                    border-color: #383E54;
+                }}
+            """)
+            box.setCursor(Qt.PointingHandCursor)
+            blay = QVBoxLayout(box)
+            blay.setContentsMargins(14, 12, 14, 12)
+            blay.setSpacing(4)
+
+            cb = QCheckBox(name)
+            cb.setChecked(True)
+            cb.setStyleSheet(f"""
+                QCheckBox {{
+                    color: {_COLOR_TEXT_PRIMARY};
+                    font-size: 13px;
+                    font-weight: 600;
+                    spacing: 8px;
+                }}
+                QCheckBox::indicator {{
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 5px;
+                    border: 2px solid #383E54;
+                    background-color: transparent;
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: {_COLOR_ACTIVE};
+                    border-color: {_COLOR_ACTIVE};
+                }}
+                QCheckBox::indicator:hover {{
+                    border-color: {_COLOR_ACTIVE};
+                }}
+            """)
+            cb.toggled.connect(self._emit_changed)
+            cb.toggled.connect(self._on_stage_toggled)
+            blay.addWidget(cb)
+            self._stage_checks[name] = cb
+
+            tip_lbl = QLabel(tip)
+            tip_lbl.setStyleSheet(f"color: {_COLOR_TEXT_MUTED}; font-size: 10px;")
+            blay.addWidget(tip_lbl)
+
+            box.mousePressEvent = lambda e, c=cb: (
+                c.setChecked(not c.isChecked()) if e.button() == Qt.LeftButton else None
+            )
+
+            flow_row.addWidget(box)
+
+        card.addLayout(flow_row)
+        return card
+
+    def _on_stage_toggled(self) -> None:
+        pass
 
     # ------------------------------------------------------------------ #
     # Output
@@ -104,54 +238,6 @@ class SettingsPage(QWidget):
         self._fmt.currentIndexChanged.connect(self._on_format_changed)
         form.addRow(self._field("Format"), self._fmt)
 
-        self._preset = QComboBox()
-        self._preset.addItem("Custom", None)
-        for size in (1000, 2000, 3000, 4000, 5000, 6000, 8000):
-            self._preset.addItem(f"{size} x {size}", (size, size, FitMode.FIT))
-        self._preset.addItem("4000 px wide", (4000, 0, FitMode.WIDTH_ONLY))
-        self._preset.currentIndexChanged.connect(self._on_preset_changed)
-        form.addRow(self._field("Preset"), self._preset)
-
-        self._width = QSpinBox()
-        self._width.setRange(MIN_OUTPUT_DIM, MAX_OUTPUT_DIM)
-        self._width.setSingleStep(100)
-        self._width.setSuffix(" px")
-        self._width.valueChanged.connect(self._on_dim_changed)
-        form.addRow(self._field("Width"), self._width)
-
-        self._height = QSpinBox()
-        self._height.setRange(0, MAX_OUTPUT_DIM)
-        self._height.setSingleStep(100)
-        self._height.setSuffix(" px")
-        self._height.setSpecialValueText("auto (keep aspect)")
-        self._height.valueChanged.connect(self._on_dim_changed)
-        form.addRow(self._field("Height"), self._height)
-
-        self._fit = QComboBox()
-        self._fit.addItem("Width only (keep aspect)", FitMode.WIDTH_ONLY)
-        self._fit.addItem("Fit inside box (pad transparent)", FitMode.FIT)
-        self._fit.addItem("Exact (stretch to W x H)", FitMode.EXACT)
-        self._fit.currentIndexChanged.connect(self._on_fit_changed)
-        form.addRow(self._field("Fit mode"), self._fit)
-
-        self._conflict = QComboBox()
-        self._conflict.addItem("Overwrite existing", ConflictPolicy.OVERWRITE)
-        self._conflict.addItem("Skip existing", ConflictPolicy.SKIP)
-        self._conflict.addItem("Auto rename", ConflictPolicy.AUTO_RENAME)
-        self._conflict.currentIndexChanged.connect(self._emit_changed)
-        form.addRow(self._field("Existing files"), self._conflict)
-
-        self._naming_original = QCheckBox("Keep original filename")
-        self._naming_original.setChecked(True)
-        self._naming_original.toggled.connect(self._on_naming_toggled)
-        form.addRow("", self._naming_original)
-
-        self._naming_suffix_lbl = self._field("Suffix")
-        self._naming_suffix = QLineEdit()
-        self._naming_suffix.setPlaceholderText("_edited")
-        self._naming_suffix.textChanged.connect(self._emit_changed)
-        form.addRow(self._naming_suffix_lbl, self._naming_suffix)
-
         self._open_output = QCheckBox("Open output folder after completion")
         self._open_output.toggled.connect(self._emit_changed)
         form.addRow("", self._open_output)
@@ -161,7 +247,7 @@ class SettingsPage(QWidget):
         self._bg_mode.addItem("White", BackgroundMode.WHITE)
         self._bg_mode.addItem("Custom color", BackgroundMode.CUSTOM)
         self._bg_mode.currentIndexChanged.connect(self._on_background_changed)
-        form.addRow(self._field("Background"), self._bg_mode)
+        form.addRow(self._field("Background fill"), self._bg_mode)
 
         self._bg_color_label = self._field("Background color")
         self._bg_color = QLineEdit("#FFFFFF")
@@ -176,11 +262,6 @@ class SettingsPage(QWidget):
         form.addRow(self._field("Metadata"), self._metadata)
 
         card.addLayout(form)
-
-        self._dim_hint = QLabel("")
-        self._dim_hint.setObjectName("FieldHint")
-        self._dim_hint.setWordWrap(True)
-        card.addWidget(self._dim_hint)
         return card
 
     # ------------------------------------------------------------------ #
@@ -266,6 +347,46 @@ class SettingsPage(QWidget):
         return card
 
     # ------------------------------------------------------------------ #
+    # Advanced
+    # ------------------------------------------------------------------ #
+    def _build_advanced_card(self) -> SectionCard:
+        card = SectionCard("Advanced")
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignLeft)
+
+        self._timeout = QSpinBox()
+        self._timeout.setRange(10, 3600)
+        self._timeout.setValue(120)
+        self._timeout.setSuffix(" s")
+        self._timeout.setToolTip("Maximum seconds allowed per image before aborting")
+        self._timeout.valueChanged.connect(self._emit_changed)
+        form.addRow(self._field("Timeout per image"), self._timeout)
+
+        self._retry = QSpinBox()
+        self._retry.setRange(0, 10)
+        self._retry.setValue(0)
+        self._retry.setToolTip("Number of retry attempts when an image fails")
+        self._retry.valueChanged.connect(self._emit_changed)
+        form.addRow(self._field("Retry attempts"), self._retry)
+
+        self._parallel = QSpinBox()
+        self._parallel.setRange(1, 8)
+        self._parallel.setValue(1)
+        self._parallel.setSuffix(" job(s)")
+        self._parallel.setToolTip("Maximum images to process concurrently")
+        self._parallel.valueChanged.connect(self._emit_changed)
+        form.addRow(self._field("Parallel jobs"), self._parallel)
+
+        self._auto_clean = self._toggle("Auto-clean temporary files")
+        self._auto_clean.setChecked(True)
+        self._auto_clean.setToolTip("Delete intermediate files after processing completes")
+        form.addRow("", self._auto_clean)
+
+        card.addLayout(form)
+        return card
+
+    # ------------------------------------------------------------------ #
     # Licence
     # ------------------------------------------------------------------ #
     def _build_license_card(self) -> SectionCard:
@@ -309,10 +430,6 @@ class SettingsPage(QWidget):
         try:
             self._out_folder.setText(s.output_folder or "")
             self._set_combo(self._fmt, s.output_format)
-            self._width.setValue(int(s.output_width))
-            self._height.setValue(int(s.output_height))
-            self._set_combo(self._fit, s.fit_mode)
-            self._set_combo(self._conflict, s.conflict_policy)
             self._set_combo(self._bg_mode, s.background_mode)
             self._bg_color.setText(s.background_color or "#FFFFFF")
             self._set_combo(self._metadata, s.metadata_policy)
@@ -323,31 +440,30 @@ class SettingsPage(QWidget):
             self._set_combo(self._upscale, s.upscale_mode)
             self._set_combo(self._device, s.device)
             self._batch.setChecked(bool(s.batch))
-            self._naming_original.setChecked(bool(s.naming_keep_original))
-            self._naming_suffix.setText(s.naming_suffix or "")
             self._open_output.setChecked(bool(s.open_output_folder))
-            self._select_matching_preset()
+
+            for name, cb in self._stage_checks.items():
+                cb.setChecked(name in (s.enabled_stages or ()))
+
+            self._timeout.setValue(int(s.timeout_per_image))
+            self._retry.setValue(int(s.retry_attempts))
+            self._parallel.setValue(int(s.max_parallel))
+            self._auto_clean.setChecked(bool(s.auto_clean_temp))
         finally:
             self._loading = False
         self._refresh_dynamic_controls()
 
     def get_settings(self) -> Settings:
-        conflict = self._enum_data(self._conflict, ConflictPolicy.OVERWRITE)
         bg_color = self._bg_color.text().strip() or "#FFFFFF"
         return Settings(
             output_folder=self._out_folder.text().strip(),
             output_format=self._enum_data(self._fmt, OutputFormat.PNG),
-            output_width=int(self._width.value()),
-            output_height=int(self._height.value()),
-            fit_mode=self._enum_data(self._fit, FitMode.WIDTH_ONLY),
             quality_preset=self._enum_data(self._quality, QualityPreset.HIGH),
             png_compression=int(self._png_compression.value()),
             upscale_mode=self._enum_data(self._upscale, UpscaleMode.X4),
             background_mode=self._enum_data(self._bg_mode, BackgroundMode.TRANSPARENT),
             background_color=bg_color,
             metadata_policy=self._enum_data(self._metadata, MetadataPolicy.STRIP),
-            conflict_policy=conflict,
-            overwrite=conflict is ConflictPolicy.OVERWRITE,
             device=self._enum_data(self._device, DeviceMode.GPU),
             batch=self._batch.isChecked(),
             jpg_quality=int(self._jpg_q.value()),
@@ -355,9 +471,14 @@ class SettingsPage(QWidget):
             jpg_background=bg_color,
             theme="dark",
             accent="indigo",
-            naming_keep_original=self._naming_original.isChecked(),
-            naming_suffix=self._naming_suffix.text().strip(),
             open_output_folder=self._open_output.isChecked(),
+            enabled_stages=tuple(
+                name for name, cb in self._stage_checks.items() if cb.isChecked()
+            ),
+            timeout_per_image=int(self._timeout.value()),
+            retry_attempts=int(self._retry.value()),
+            max_parallel=int(self._parallel.value()),
+            auto_clean_temp=self._auto_clean.isChecked(),
         )
 
     # ------------------------------------------------------------------ #
@@ -368,36 +489,6 @@ class SettingsPage(QWidget):
         self._emit_changed()
 
     def _on_background_changed(self, *_args) -> None:
-        self._refresh_dynamic_controls()
-        self._emit_changed()
-
-    def _on_naming_toggled(self, *_args) -> None:
-        self._refresh_dynamic_controls()
-        self._emit_changed()
-
-    def _on_preset_changed(self, *_args) -> None:
-        data = self._preset.currentData()
-        if data is not None:
-            width, height, fit = data
-            self._loading = True
-            try:
-                self._width.setValue(int(width))
-                self._height.setValue(int(height))
-                self._set_combo(self._fit, fit)
-            finally:
-                self._loading = False
-        self._refresh_dynamic_controls()
-        self._emit_changed()
-
-    def _on_dim_changed(self, *_args) -> None:
-        if not self._loading:
-            self._preset.setCurrentIndex(0)
-        self._refresh_dynamic_controls()
-        self._emit_changed()
-
-    def _on_fit_changed(self, *_args) -> None:
-        if not self._loading:
-            self._preset.setCurrentIndex(0)
         self._refresh_dynamic_controls()
         self._emit_changed()
 
@@ -414,26 +505,6 @@ class SettingsPage(QWidget):
         show_color = bg_mode is BackgroundMode.CUSTOM or fmt is OutputFormat.JPG
         self._bg_color_label.setVisible(show_color)
         self._bg_color.setVisible(show_color)
-
-        use_custom = not self._naming_original.isChecked()
-        self._naming_suffix_lbl.setVisible(use_custom)
-        self._naming_suffix.setVisible(use_custom)
-
-        fit = self._enum_data(self._fit, FitMode.WIDTH_ONLY)
-        if fit is FitMode.WIDTH_ONLY:
-            self._dim_hint.setText(
-                f"Final output will be {self._width.value()} px wide; "
-                "height follows the source aspect ratio."
-            )
-        elif self._height.value() < MIN_OUTPUT_DIM:
-            self._dim_hint.setText(
-                f"Fit and Exact modes need height >= {MIN_OUTPUT_DIM}px."
-            )
-        else:
-            self._dim_hint.setText(
-                f"Final canvas will be {self._width.value()} x "
-                f"{self._height.value()} px."
-            )
 
     # ------------------------------------------------------------------ #
     # Licence actions
@@ -461,9 +532,6 @@ class SettingsPage(QWidget):
         self._emit_changed()
 
     def _generate_test_key(self) -> None:
-        # Minted with the dev private key when present; hidden in a shipped
-        # build (no private key bundled). Real customer keys come from
-        # tools/keygen.py on the developer's machine.
         key = self._ent.mint_test_key(self._lic_owner.text().strip() or "dev")
         if key:
             self._lic_key.setText(key)
@@ -488,8 +556,6 @@ class SettingsPage(QWidget):
             else:
                 self._lic_status.setText("Licence: Free tier")
                 self._lic_status.setStyleSheet("color:#8A90A6;")
-        # The "Generate test key" button only makes sense where the private
-        # signing key is available (developer machine). Hide it in builds.
         self._btn_gen.setVisible(license_config.can_mint())
 
     # ------------------------------------------------------------------ #
@@ -498,18 +564,6 @@ class SettingsPage(QWidget):
     def _emit_changed(self, *_args) -> None:
         if not self._loading:
             self.settings_changed.emit()
-
-    def _select_matching_preset(self) -> None:
-        current = (
-            int(self._width.value()),
-            int(self._height.value()),
-            self._enum_data(self._fit, FitMode.WIDTH_ONLY),
-        )
-        for idx in range(self._preset.count()):
-            if self._preset.itemData(idx) == current:
-                self._preset.setCurrentIndex(idx)
-                return
-        self._preset.setCurrentIndex(0)
 
     @staticmethod
     def _set_combo(combo: QComboBox, value) -> None:

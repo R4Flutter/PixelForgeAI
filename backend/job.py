@@ -136,6 +136,20 @@ class Settings:
     naming_suffix: str = ""
     open_output_folder: bool = False
 
+    # Pipeline flow — which stages are active
+    enabled_stages: tuple = (
+        "Remove Background",
+        "AI Upscale",
+        "Resize",
+        "Output",
+    )
+
+    # Advanced
+    timeout_per_image: int = 120
+    retry_attempts: int = 0
+    max_parallel: int = 1
+    auto_clean_temp: bool = True
+
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d["output_format"] = self.output_format.value
