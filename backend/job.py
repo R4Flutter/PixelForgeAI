@@ -132,6 +132,9 @@ class Settings:
     remember_window: bool = True
     window_width: int = 1180
     window_height: int = 760
+    naming_keep_original: bool = True
+    naming_suffix: str = ""
+    open_output_folder: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)

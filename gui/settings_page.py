@@ -141,6 +141,21 @@ class SettingsPage(QWidget):
         self._conflict.currentIndexChanged.connect(self._emit_changed)
         form.addRow(self._field("Existing files"), self._conflict)
 
+        self._naming_original = QCheckBox("Keep original filename")
+        self._naming_original.setChecked(True)
+        self._naming_original.toggled.connect(self._on_naming_toggled)
+        form.addRow("", self._naming_original)
+
+        self._naming_suffix_lbl = self._field("Suffix")
+        self._naming_suffix = QLineEdit()
+        self._naming_suffix.setPlaceholderText("_edited")
+        self._naming_suffix.textChanged.connect(self._emit_changed)
+        form.addRow(self._naming_suffix_lbl, self._naming_suffix)
+
+        self._open_output = QCheckBox("Open output folder after completion")
+        self._open_output.toggled.connect(self._emit_changed)
+        form.addRow("", self._open_output)
+
         self._bg_mode = QComboBox()
         self._bg_mode.addItem("Transparent", BackgroundMode.TRANSPARENT)
         self._bg_mode.addItem("White", BackgroundMode.WHITE)
@@ -308,6 +323,9 @@ class SettingsPage(QWidget):
             self._set_combo(self._upscale, s.upscale_mode)
             self._set_combo(self._device, s.device)
             self._batch.setChecked(bool(s.batch))
+            self._naming_original.setChecked(bool(s.naming_keep_original))
+            self._naming_suffix.setText(s.naming_suffix or "")
+            self._open_output.setChecked(bool(s.open_output_folder))
             self._select_matching_preset()
         finally:
             self._loading = False
@@ -337,6 +355,9 @@ class SettingsPage(QWidget):
             jpg_background=bg_color,
             theme="dark",
             accent="indigo",
+            naming_keep_original=self._naming_original.isChecked(),
+            naming_suffix=self._naming_suffix.text().strip(),
+            open_output_folder=self._open_output.isChecked(),
         )
 
     # ------------------------------------------------------------------ #
@@ -347,6 +368,10 @@ class SettingsPage(QWidget):
         self._emit_changed()
 
     def _on_background_changed(self, *_args) -> None:
+        self._refresh_dynamic_controls()
+        self._emit_changed()
+
+    def _on_naming_toggled(self, *_args) -> None:
         self._refresh_dynamic_controls()
         self._emit_changed()
 
@@ -389,6 +414,10 @@ class SettingsPage(QWidget):
         show_color = bg_mode is BackgroundMode.CUSTOM or fmt is OutputFormat.JPG
         self._bg_color_label.setVisible(show_color)
         self._bg_color.setVisible(show_color)
+
+        use_custom = not self._naming_original.isChecked()
+        self._naming_suffix_lbl.setVisible(use_custom)
+        self._naming_suffix.setVisible(use_custom)
 
         fit = self._enum_data(self._fit, FitMode.WIDTH_ONLY)
         if fit is FitMode.WIDTH_ONLY:
