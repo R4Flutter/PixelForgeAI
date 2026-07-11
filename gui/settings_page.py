@@ -1,16 +1,28 @@
 from __future__ import annotations
 
-from typing import Optional
+import math
+import random
+import time
+from typing import List, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import (
+    Qt, Signal, QTimer, QPropertyAnimation, QEasingCurve,
+    Property, QPointF, QRectF, QElapsedTimer,
+)
+from PySide6.QtGui import (
+    QBrush, QColor, QFont, QFontDatabase, QLinearGradient, QPainter,
+    QPainterPath, QPen, QRadialGradient,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QScroller,
     QScrollArea,
     QSpinBox,
@@ -36,10 +48,427 @@ from components.icons import icon
 
 _COLOR_ACTIVE = "#7C5CFF"
 _COLOR_CARD = "#12141C"
+_COLOR_PLAN_CARD = "#181B28"
 _COLOR_BORDER = "#1E2230"
 _COLOR_TEXT_PRIMARY = "#F4F5FB"
 _COLOR_TEXT_SECONDARY = "#C4C8D6"
 _COLOR_TEXT_MUTED = "#6B7186"
+_COLOR_SUCCESS = "#22C55E"
+_COLOR_WARNING = "#FBBF24"
+
+
+class _ConfettiOverlay(QWidget):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self._particles: list[dict] = []
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._tick)
+
+    def burst(self) -> None:
+        self._particles.clear()
+        w, h = self.parent().width() if self.parent() else 400, 40
+        cx, cy = w / 2, h / 2
+        for _ in range(60):
+            angle = random.uniform(0, 360)
+            speed = random.uniform(3, 8)
+            colors = [_COLOR_ACTIVE, _COLOR_SUCCESS, _COLOR_WARNING, "#A78BFA", "#F472B6"]
+            self._particles.append({
+                "x": cx, "y": cy,
+                "vx": math.cos(math.radians(angle)) * speed,
+                "vy": math.sin(math.radians(angle)) * speed - 4,
+                "life": 1.0, "decay": 0.008 + random.random() * 0.012,
+                "color": random.choice(colors),
+                "size": 2 + random.random() * 4,
+            })
+        self._timer.start()
+        self.raise_()
+        self.show()
+        self.update()
+
+    def _tick(self) -> None:
+        dead = True
+        w, h = self.width(), self.height()
+        for p in self._particles:
+            p["x"] += p["vx"]
+            p["vy"] += 0.15
+            p["y"] += p["vy"]
+            p["life"] -= p["decay"]
+            if p["life"] > 0:
+                dead = False
+        if dead:
+            self._timer.stop()
+            self.hide()
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        if not self._particles:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        for pt in self._particles:
+            if pt["life"] <= 0:
+                continue
+            alpha = int(255 * pt["life"])
+            c = QColor(pt["color"])
+            c.setAlpha(alpha)
+            p.setPen(Qt.NoPen)
+            p.setBrush(c)
+            s = pt["size"] * pt["life"]
+            p.drawEllipse(QPointF(pt["x"], pt["y"]), s, s)
+        p.end()
+
+
+class _PricingToggle(QWidget):
+    toggled = Signal(bool)
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(52, 28)
+        self._checked = False
+        self._hover = 0.0
+        self._thumb_pos = 0.0
+        self._anim: QPropertyAnimation | None = None
+        self.setCursor(Qt.PointingHandCursor)
+        self._confetti = _ConfettiOverlay(self)
+
+    def is_checked(self) -> bool:
+        return self._checked
+
+    def set_checked(self, checked: bool) -> None:
+        self._checked = checked
+        target = 1.0 if checked else 0.0
+        self._anim = QPropertyAnimation(self, b"thumb_pos", self)
+        self._anim.setDuration(250)
+        self._anim.setStartValue(self._thumb_pos)
+        self._anim.setEndValue(target)
+        self._anim.setEasingCurve(QEasingCurve.OutBack)
+        self._anim.start()
+        if checked:
+            QTimer.singleShot(100, self._confetti.burst)
+
+    def _get_thumb(self) -> float:
+        return self._thumb_pos
+
+    def _set_thumb(self, v: float) -> None:
+        self._thumb_pos = v
+        self.update()
+
+    thumb_pos = Property(float, _get_thumb, _set_thumb)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._checked = not self._checked
+            self.set_checked(self._checked)
+            self.toggled.emit(self._checked)
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        r = h / 2
+
+        bg = _tk(_COLOR_ACTIVE) if self._checked else _tk("#2B3042")
+        p.setPen(Qt.NoPen)
+        p.setBrush(bg)
+        p.drawRoundedRect(0, 0, w, h, r, r)
+
+        thumb_x = 2 + (w - h) * self._thumb_pos
+        thumb_y = 2
+        ts = h - 4
+        p.setBrush(_tk("#FFFFFF"))
+        p.drawEllipse(QPointF(thumb_x + ts / 2, thumb_y + ts / 2), ts / 2, ts / 2)
+
+        if self._checked:
+            c = QColor(_COLOR_SUCCESS)
+            c.setAlpha(30)
+            p.setBrush(c)
+            p.drawEllipse(QPointF(thumb_x + ts / 2, thumb_y + ts / 2), ts, ts)
+
+        p.end()
+
+
+class _PlanCard(QWidget):
+    MIN_H = 420
+
+    def __init__(self, name: str, price: int, yearly_price: int,
+                 features: List[str], is_popular: bool = False,
+                 parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._name = name
+        self._price = price
+        self._yearly_price = yearly_price
+        self._features = features
+        self._is_popular = is_popular
+        self._hover = 0.0
+        self._press = 0.0
+        self._is_monthly = True
+        self._anim_hover: QPropertyAnimation | None = None
+        self._price_display = float(price)
+        self._price_target = float(price)
+        self._price_anim: QPropertyAnimation | None = None
+
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumWidth(200)
+        self.setFixedHeight(self.MIN_H)
+        self.setMouseTracking(True)
+
+    def set_monthly(self, monthly: bool) -> None:
+        self._is_monthly = monthly
+        self._price_target = float(self._price if monthly else self._yearly_price)
+        self._price_anim = QPropertyAnimation(self, b"price_val", self)
+        self._price_anim.setDuration(400)
+        self._price_anim.setStartValue(self._price_display)
+        self._price_anim.setEndValue(self._price_target)
+        self._price_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._price_anim.start()
+
+    def _get_price(self) -> float:
+        return self._price_display
+
+    def _set_price(self, v: float) -> None:
+        self._price_display = v
+        self.update()
+
+    price_val = Property(float, _get_price, _set_price)
+
+    def _get_hover(self) -> float:
+        return self._hover
+
+    def _set_hover(self, v: float) -> None:
+        self._hover = v
+        self.update()
+
+    hover_amount = Property(float, _get_hover, _set_hover)
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        self._anim_hover = QPropertyAnimation(self, b"hover_amount", self)
+        self._anim_hover.setDuration(200)
+        self._anim_hover.setStartValue(self._hover)
+        self._anim_hover.setEndValue(1.0)
+        self._anim_hover.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim_hover.start()
+
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        self._anim_hover = QPropertyAnimation(self, b"hover_amount", self)
+        self._anim_hover.setDuration(200)
+        self._anim_hover.setStartValue(self._hover)
+        self._anim_hover.setEndValue(0.0)
+        self._anim_hover.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim_hover.start()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._press = 1.0
+            self.update()
+            QTimer.singleShot(100, self._release_press)
+
+    def _release_press(self) -> None:
+        self._press = 0.0
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        r = 14
+        press_scale = 1.0 - self._press * 0.02
+
+        bg = QColor(_COLOR_PLAN_CARD)
+        if self._hover > 0:
+            hr, hg, hb, _ = bg.getRgb()
+            factor = 1.0 + self._hover * 0.06
+            bg = QColor(min(255, int(hr * factor)), min(255, int(hg * factor)),
+                        min(255, int(hb * factor)))
+
+        border_color = _COLOR_ACTIVE if self._is_popular else _COLOR_BORDER
+        border_w = 2 if self._is_popular else 1
+
+        p.save()
+        p.translate(w / 2, h / 2)
+        p.scale(press_scale, press_scale)
+        p.translate(-w / 2, -h / 2)
+
+        p.setPen(QPen(QColor(border_color), border_w))
+        p.setBrush(bg)
+        p.drawRoundedRect(0, 0, w - 1, h - 1, r, r)
+
+        if self._is_popular:
+            badge = QPainterPath()
+            badge.moveTo(w - 60, 0)
+            badge.lineTo(w, 0)
+            badge.lineTo(w - 10, 26)
+            badge.lineTo(w - 70, 26)
+            badge.closeSubpath()
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(_COLOR_ACTIVE))
+            p.drawPath(badge)
+            p.setPen(QColor("#FFFFFF"))
+            bf = QFont()
+            bf.setFamilies(["Inter", "Segoe UI", "sans-serif"])
+            bf.setPointSize(8)
+            bf.setWeight(QFont.DemiBold)
+            p.setFont(bf)
+            p.drawText(QRectF(w - 65, 0, 60, 26), Qt.AlignCenter, "POPULAR")
+
+        px = 18
+
+        p.setPen(QColor(_COLOR_TEXT_MUTED))
+        nf = QFont()
+        nf.setFamilies(["Inter", "Segoe UI", "sans-serif"])
+        nf.setPointSize(10)
+        nf.setWeight(QFont.DemiBold)
+        p.setFont(nf)
+        p.drawText(QRectF(px, 22, w - 36, 16), Qt.AlignLeft | Qt.AlignVCenter, self._name)
+
+        p.setPen(QColor(_COLOR_TEXT_PRIMARY))
+        price_f = QFont()
+        price_f.setFamilies(["Inter", "Segoe UI", "sans-serif"])
+        price_f.setPointSize(34)
+        price_f.setWeight(QFont.Bold)
+        p.setFont(price_f)
+        price_text = f"${int(self._price_display)}"
+        p.drawText(QRectF(px, 52, w - 36, 42), Qt.AlignLeft | Qt.AlignVCenter, price_text)
+
+        p.setPen(QColor(_COLOR_TEXT_MUTED))
+        period_f = QFont()
+        period_f.setFamilies(["Inter", "Segoe UI", "sans-serif"])
+        period_f.setPointSize(10)
+        p.setFont(period_f)
+        period = "/mo" if self._is_monthly else "/yr"
+        mw = p.fontMetrics().horizontalAdvance(price_text)
+        p.drawText(QRectF(px + mw + 4, 52, 60, 42), Qt.AlignLeft | Qt.AlignVCenter, period)
+
+        p.setPen(QColor(_COLOR_TEXT_MUTED))
+        sub_f = QFont()
+        sub_f.setFamilies(["Inter", "Segoe UI", "sans-serif"])
+        sub_f.setPointSize(8)
+        p.setFont(sub_f)
+        p.drawText(QRectF(px, 96, w - 36, 16), Qt.AlignLeft | Qt.AlignVCenter,
+                   "billed " + ("monthly" if self._is_monthly else "annually"))
+
+        feat_y = 124
+        p.setPen(QColor(_COLOR_TEXT_SECONDARY))
+        ff = QFont()
+        ff.setFamilies(["Inter", "Segoe UI", "sans-serif"])
+        ff.setPointSize(9)
+        p.setFont(ff)
+
+        for i, feat in enumerate(self._features):
+            fy = feat_y + i * 24
+            c = QColor(_COLOR_SUCCESS)
+            p.setPen(Qt.NoPen)
+            p.setBrush(c)
+            p.drawEllipse(QPointF(px + 6, fy + 7), 3.5, 3.5)
+            p.setPen(QColor(_COLOR_TEXT_SECONDARY))
+            p.drawText(QRectF(px + 18, fy, w - 54, 22), Qt.AlignLeft | Qt.AlignVCenter, feat)
+
+        btn_y = h - 58
+        btn_h = 40
+        btn_r = 10
+
+        if self._is_popular:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(_COLOR_ACTIVE))
+            p.drawRoundedRect(QRectF(px, btn_y, w - 36, btn_h), btn_r, btn_r)
+            p.setPen(QColor("#FFFFFF"))
+        else:
+            p.setPen(QPen(QColor(_COLOR_BORDER), 1))
+            p.setBrush(bg)
+            p.drawRoundedRect(QRectF(px, btn_y, w - 36, btn_h), btn_r, btn_r)
+            p.setPen(QColor(_COLOR_TEXT_PRIMARY))
+
+        btn_f = QFont()
+        btn_f.setFamilies(["Inter", "Segoe UI", "sans-serif"])
+        btn_f.setPointSize(10)
+        btn_f.setWeight(QFont.DemiBold)
+        p.setFont(btn_f)
+        btn_label = "Start Free Trial" if self._is_popular else "Get Started"
+        p.drawText(QRectF(px, btn_y, w - 36, btn_h), Qt.AlignCenter, btn_label)
+
+        if self._hover > 0:
+            c = QColor(_COLOR_ACTIVE)
+            c.setAlpha(int(10 * self._hover))
+            p.setPen(Qt.NoPen)
+            p.setBrush(c)
+            p.drawRoundedRect(0, 0, w - 1, h - 1, r, r)
+
+        p.restore()
+        p.end()
+
+
+class _SubscriptionCard(QFrame):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("Card")
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 24)
+        root.setSpacing(14)
+
+        header = QLabel("SUBSCRIPTION")
+        header.setObjectName("SectionLabel")
+        root.addWidget(header)
+
+        desc = QLabel("Choose the plan that works for you. All plans include full access to the AI pipeline.")
+        desc.setObjectName("FieldHint")
+        desc.setWordWrap(True)
+        root.addWidget(desc)
+
+        toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(10)
+        toggle_row.addStretch(1)
+
+        self._toggle = _PricingToggle()
+        toggle_row.addWidget(self._toggle)
+
+        self._toggle_label = QLabel("Annual billing  \u2014  Save 20%")
+        self._toggle_label.setStyleSheet(f"color: {_COLOR_ACTIVE}; font-size: 10px; font-weight: 600;")
+        toggle_row.addWidget(self._toggle_label)
+        toggle_row.addStretch(1)
+        root.addLayout(toggle_row)
+
+        plans_row = QHBoxLayout()
+        plans_row.setSpacing(16)
+
+        self._plans_data = [
+            ("Starter", 19, 15,
+             ["Up to 10 projects", "Basic analytics", "48-hour support",
+              "Limited API access", "Community access"]),
+            ("Professional", 49, 39,
+             ["Unlimited projects", "Advanced analytics", "24-hour support",
+              "Full API access", "Priority support", "Team collaboration",
+              "Custom integrations"]),
+            ("Enterprise", 99, 79,
+             ["Everything in Pro", "Custom solutions", "Dedicated manager",
+              "1-hour support", "SSO / SAML", "Custom contracts",
+              "SLA agreement"]),
+        ]
+
+        self._plan_cards: List[_PlanCard] = []
+        for i, (name, price, yprice, features) in enumerate(self._plans_data):
+            is_popular = name == "Professional"
+            card = _PlanCard(name, price, yprice, features, is_popular=is_popular)
+            self._plan_cards.append(card)
+            plans_row.addWidget(card, 1)
+
+        root.addLayout(plans_row)
+
+        self._toggle.toggled.connect(self._on_toggle)
+
+    def _on_toggle(self, checked: bool) -> None:
+        for card in self._plan_cards:
+            card.set_monthly(not checked)
+        self._toggle_label.setText(
+            "Annual billing  \u2014  Save 20%" if checked else "Monthly billing"
+        )
+
+
+def _tk(hex_color: str) -> QColor:
+    return QColor(hex_color)
 
 
 class SettingsPage(QWidget):
@@ -110,6 +539,7 @@ class SettingsPage(QWidget):
         root.addWidget(self._build_quality_card())
         root.addWidget(self._build_compute_card())
         root.addWidget(self._build_advanced_card())
+        root.addWidget(self._build_subscription_card())
         root.addWidget(self._build_license_card())
         root.addStretch(1)
 
@@ -505,6 +935,12 @@ class SettingsPage(QWidget):
         show_color = bg_mode is BackgroundMode.CUSTOM or fmt is OutputFormat.JPG
         self._bg_color_label.setVisible(show_color)
         self._bg_color.setVisible(show_color)
+
+    # ------------------------------------------------------------------ #
+    # Subscription
+    # ------------------------------------------------------------------ #
+    def _build_subscription_card(self) -> _SubscriptionCard:
+        return _SubscriptionCard()
 
     # ------------------------------------------------------------------ #
     # Licence actions

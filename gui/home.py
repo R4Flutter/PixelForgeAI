@@ -6,12 +6,14 @@ from typing import List, Optional, Sequence
 
 from PySide6.QtCore import (
     Qt, QTimer, Signal, QPropertyAnimation, QEasingCurve,
-    QPoint, QRect, QRectF, QSize,
+    QPoint, QRect, QRectF, QSize, QByteArray,
 )
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QImage, QLinearGradient, QPainter, QPainterPath,
     QPen, QPixmap, QRadialGradient,
 )
+from PySide6.QtSvg import QSvgRenderer
+
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
@@ -36,6 +38,10 @@ _COLOR_BORDER = "#1E2230"
 _COLOR_TEXT_PRIMARY = "#F4F5FB"
 _COLOR_TEXT_SECONDARY = "#8A90A6"
 _COLOR_TEXT_MUTED = "#6B7186"
+
+_STAGE_CHECKED_SVG = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "assets", "icons", "stage-checked.svg")
+)
 
 
 def _reduced() -> bool:
@@ -187,6 +193,70 @@ class _FlowPresetBar(QWidget):
         self.current_changed.emit(name)
 
 
+class _StageToggle(QWidget):
+    toggled = Signal(bool)
+
+    def __init__(self, checked: bool = True, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._checked = checked
+        self._svg_renderer: QSvgRenderer | None = None
+        self.setFixedSize(22, 22)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def is_checked(self) -> bool:
+        return self._checked
+
+    def set_checked(self, checked: bool) -> None:
+        if checked != self._checked:
+            self._checked = checked
+            self.update()
+            self.toggled.emit(checked)
+
+    def _load_svg(self) -> QSvgRenderer:
+        if self._svg_renderer is None:
+            data = QByteArray()
+            with open(_STAGE_CHECKED_SVG, "rb") as f:
+                data = QByteArray(f.read())
+            self._svg_renderer = QSvgRenderer(data)
+        return self._svg_renderer
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._checked = not self._checked
+            self.update()
+            self.toggled.emit(self._checked)
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        r = 4
+
+        if self._checked:
+            try:
+                svg = self._load_svg()
+                svg.render(p, QRectF(0, 0, w, h))
+                p.end()
+                return
+            except Exception:
+                pass
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(124, 92, 255))
+            p.drawRoundedRect(0, 0, w, h, r, r)
+            p.setPen(QColor("#FFFFFF"))
+            f = QFont()
+            f.setPointSize(11)
+            f.setWeight(QFont.Bold)
+            p.setFont(f)
+            p.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "\u2713")
+        else:
+            p.setPen(QPen(QColor("#262A37"), 1))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(0.5, 0.5, w - 1, h - 1, r, r)
+
+        p.end()
+
+
 class _PipelineCard(QWidget):
     toggled = Signal(str, bool)
 
@@ -214,15 +284,8 @@ class _PipelineCard(QWidget):
         self._arrow.setStyleSheet(f"color: {_COLOR_TEXT_MUTED}; font-size: 9px;")
         hlay.addWidget(self._arrow)
 
-        self._checkbox = QCheckBox()
-        self._checkbox.setChecked(True)
-        self._checkbox.setStyleSheet(
-            "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;"
-            " border: 1px solid #262A37; }"
-            "QCheckBox::indicator:checked { background-color: #7C5CFF;"
-            " border-color: #7C5CFF; }"
-        )
-        hlay.addWidget(self._checkbox)
+        self._toggle = _StageToggle(checked=True)
+        hlay.addWidget(self._toggle)
 
         icon_lbl = QLabel()
         icon_lbl.setPixmap(pixmap(icon_svg, 18, color=_COLOR_TEXT_PRIMARY))

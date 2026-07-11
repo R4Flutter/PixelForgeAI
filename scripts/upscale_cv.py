@@ -81,10 +81,12 @@ def upscale_image_cv(
         new_w = w * scale
         new_h = h * scale
         if new_w * new_h > _MAX_OUTPUT_PIXELS:
-            raise UpscaleError(
-                f"Upscaled size {new_w}x{new_h} exceeds the "
-                f"{_MAX_OUTPUT_PIXELS:,}-pixel safety limit. "
-                "Use a smaller scale or a smaller source."
+            max_scale = max(1, int((_MAX_OUTPUT_PIXELS / (w * h)) ** 0.5))
+            new_w = w * max_scale
+            new_h = h * max_scale
+            logger.warning(
+                f"Scale {scale}x would exceed {_MAX_OUTPUT_PIXELS:,}-px safety limit. "
+                f"Clipped to {max_scale}x ({new_w}x{new_h})."
             )
 
         upscaled = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)

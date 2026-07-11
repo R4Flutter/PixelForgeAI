@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, qVersion
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
@@ -23,9 +23,11 @@ def _load_theme(app: QApplication, name: str = "dark") -> None:
 
 
 def main() -> int:
-    if hasattr(Qt, "AA_EnableHighDpiScaling"):
-        QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    ver = qVersion().split(".")
+    if not (int(ver[0]) >= 6 and int(ver[1]) >= 6):
+        if hasattr(Qt, "AA_EnableHighDpiScaling"):
+            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+        QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
