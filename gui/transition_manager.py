@@ -144,19 +144,15 @@ class _TransitionOverlay(QWidget):
 class TransitionManager(QObject):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self._shared_image_path: str = ""
         self._active_overlay: Optional[QWidget] = None
 
-    def set_shared_image(self, path: str) -> None:
-        self._shared_image_path = path
+    def set_depth_layers(self, bg: QWidget, ambient: QWidget) -> None:
+        pass
 
     def cancel(self) -> None:
         if self._active_overlay is not None:
             self._active_overlay.deleteLater()
             self._active_overlay = None
-
-    def set_depth_layers(self, bg: QWidget, ambient: QWidget) -> None:
-        pass
 
     def _find_carousel_center(self, widget: QWidget) -> QRectF:
         try:
@@ -171,20 +167,13 @@ class TransitionManager(QObject):
         except Exception:
             return QRectF()
 
-    def _load_shared_pixmap(self) -> Optional[QPixmap]:
-        if not self._shared_image_path:
-            return None
-        pm = QPixmap(self._shared_image_path)
-        if pm.isNull():
-            return None
-        return pm.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-
     def cinematic_transition(
         self,
         outgoing: QWidget,
         incoming: QWidget,
         direction: str = "left",
         on_finished: Optional[Callable[[], None]] = None,
+        shared_image_path: str = "",
     ) -> None:
         if _reduced():
             if on_finished:
@@ -205,7 +194,11 @@ class TransitionManager(QObject):
         overlay.show()
         overlay.raise_()
 
-        fly_pm = self._load_shared_pixmap()
+        fly_pm: Optional[QPixmap] = None
+        if shared_image_path:
+            pm = QPixmap(shared_image_path)
+            if not pm.isNull():
+                fly_pm = pm.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         has_shared = fly_pm is not None and not fly_pm.isNull()
 
         if has_shared:

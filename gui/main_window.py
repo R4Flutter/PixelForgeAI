@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
         self._results.process_again.connect(self._process_again)
         self._settings_page.settings_changed.connect(self._on_settings_changed)
 
-    def _navigate(self, idx: int, instant: bool = False) -> None:
+    def _navigate(self, idx: int, instant: bool = False, shared_image: str = "") -> None:
         if self._is_running() and idx != 1:
             return
         outgoing = self._stack.currentWidget()
@@ -161,7 +161,8 @@ class MainWindow(QMainWindow):
             self._sidebar.set_active(idx)
 
         self._transition.cinematic_transition(
-            outgoing, incoming, direction=direction, on_finished=_set_index
+            outgoing, incoming, direction=direction,
+            on_finished=_set_index, shared_image_path=shared_image,
         )
         self._last_nav_idx = idx
 
@@ -211,8 +212,7 @@ class MainWindow(QMainWindow):
             self._last_output = self._resolved_output(self._settings)
             self._processing.begin(total, paths=list(job.sources))
             first = list(job.sources)[0] if job.sources else ""
-            self._transition.set_shared_image(first)
-            self._navigate(1)
+            self._navigate(1, shared_image=first)
             self._set_running(True)
             w.start()
         except Exception as exc:
