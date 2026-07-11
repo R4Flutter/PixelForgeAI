@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 64 64"
+     fill="none"
+     stroke="white"
+     stroke-width="2.5"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+
+  <!-- Outer diamond -->
+  <path d="M16 12H48L60 28L32 56L4 28L16 12Z"/>
+
+  <!-- Top facets -->
+  <path d="M16 12L24 28"/>
+  <path d="M32 12L24 28"/>
+  <path d="M32 12L40 28"/>
+  <path d="M48 12L40 28"/>
+
+  <!-- Middle line -->
+  <path d="M4 28H60"/>
+
+  <!-- Center -->
+  <path d="M32 12V56"/>
+
+  <!-- Bottom facets -->
+  <path d="M24 28L32 56"/>
+  <path d="M40 28L32 56"/>
+
+</svg>

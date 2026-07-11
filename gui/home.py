@@ -12,6 +12,7 @@ from PySide6.QtGui import (
     QBrush, QColor, QFont, QImage, QLinearGradient, QPainter, QPainterPath,
     QPen, QPixmap, QRadialGradient,
 )
+
 from PySide6.QtSvg import QSvgRenderer
 
 from PySide6.QtWidgets import (
@@ -196,10 +197,14 @@ class _FlowPresetBar(QWidget):
 class _StageToggle(QWidget):
     toggled = Signal(bool)
 
-    def __init__(self, checked: bool = True, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, checked: bool = True, icon_path: str = "",
+                 parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._checked = checked
+        self._icon_path = icon_path
         self._svg_renderer: QSvgRenderer | None = None
+        self._pixmap: QPixmap | None = None
+        self._is_svg = icon_path.lower().endswith(".svg") if icon_path else True
         self.setFixedSize(22, 22)
         self.setCursor(Qt.PointingHandCursor)
 
@@ -212,13 +217,25 @@ class _StageToggle(QWidget):
             self.update()
             self.toggled.emit(checked)
 
-    def _load_svg(self) -> QSvgRenderer:
-        if self._svg_renderer is None:
-            data = QByteArray()
-            with open(_STAGE_CHECKED_SVG, "rb") as f:
-                data = QByteArray(f.read())
-            self._svg_renderer = QSvgRenderer(data)
-        return self._svg_renderer
+    def _load_icon(self):
+        if not self._icon_path:
+            return None
+        if self._is_svg:
+            if self._svg_renderer is None:
+                try:
+                    with open(self._icon_path, "rb") as f:
+                        self._svg_renderer = QSvgRenderer(QByteArray(f.read()))
+                except Exception:
+                    return None
+            return self._svg_renderer
+        else:
+            if self._pixmap is None:
+                self._pixmap = QPixmap(self._icon_path)
+                if not self._pixmap.isNull():
+                    s = min(self.width(), self.height()) - 2
+                    self._pixmap = self._pixmap.scaled(
+                        s, s, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            return self._pixmap
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton:
@@ -230,26 +247,30 @@ class _StageToggle(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        r = 4
 
         if self._checked:
-            try:
-                svg = self._load_svg()
-                svg.render(p, QRectF(0, 0, w, h))
-                p.end()
-                return
-            except Exception:
-                pass
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(124, 92, 255))
-            p.drawRoundedRect(0, 0, w, h, r, r)
-            p.setPen(QColor("#FFFFFF"))
-            f = QFont()
-            f.setPointSize(11)
-            f.setWeight(QFont.Bold)
-            p.setFont(f)
-            p.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "\u2713")
+            icon = self._load_icon()
+            if icon is not None:
+                pad = 1
+                if self._is_svg:
+                    icon.render(p, QRectF(pad, pad, w - pad * 2, h - pad * 2))
+                else:
+                    px = int((w - icon.width()) / 2)
+                    py = int((h - icon.height()) / 2)
+                    p.drawPixmap(px, py, icon)
+            else:
+                r = 4
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(124, 92, 255))
+                p.drawRoundedRect(0, 0, w, h, r, r)
+                p.setPen(QColor("#FFFFFF"))
+                f = QFont()
+                f.setPointSize(11)
+                f.setWeight(QFont.Bold)
+                p.setFont(f)
+                p.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "\u2713")
         else:
+            r = 4
             p.setPen(QPen(QColor("#262A37"), 1))
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(0.5, 0.5, w - 1, h - 1, r, r)
@@ -261,7 +282,8 @@ class _PipelineCard(QWidget):
     toggled = Signal(str, bool)
 
     def __init__(self, title: str, subtitle: str, icon_svg: str,
-                 expanded: bool = False, parent: Optional[QWidget] = None) -> None:
+                 expanded: bool = False, toggle_widget: Optional[QWidget] = None,
+                 parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._title = title
         self._expanded = expanded
@@ -284,8 +306,18 @@ class _PipelineCard(QWidget):
         self._arrow.setStyleSheet(f"color: {_COLOR_TEXT_MUTED}; font-size: 9px;")
         hlay.addWidget(self._arrow)
 
-        self._toggle = _StageToggle(checked=True)
-        hlay.addWidget(self._toggle)
+        if toggle_widget is not None:
+            self._toggle_w = toggle_widget
+        else:
+            self._toggle_w = QCheckBox()
+            self._toggle_w.setChecked(True)
+            self._toggle_w.setStyleSheet(
+                "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;"
+                " border: 1px solid #262A37; }"
+                "QCheckBox::indicator:checked { background-color: #7C5CFF;"
+                " border-color: #7C5CFF; }"
+            )
+        hlay.addWidget(self._toggle_w)
 
         icon_lbl = QLabel()
         icon_lbl.setPixmap(pixmap(icon_svg, 18, color=_COLOR_TEXT_PRIMARY))
@@ -1297,9 +1329,28 @@ class HomePage(QWidget):
             ("Resize", "4000 x 4000", "resize"),
             ("Output", "PNG  •  Compression: 6", "format"),
         ]
+        _WAND_SVG = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "assets", "icons", "wand-checked.svg")
+        )
+        _IMAGE_SVG = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "assets", "icons", "image-checked.svg")
+        )
+        _DIAMOND_SVG = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "assets", "icons", "diamond-checked.svg")
+        )
         for title, subtitle, icon_name in pipeline_defs:
+            toggle = None
+            if title == "Remove Background":
+                toggle = _StageToggle(checked=True, icon_path=_WAND_SVG)
+            elif title == "AI Upscale":
+                toggle = _StageToggle(checked=True, icon_path=_DIAMOND_SVG)
+            elif title == "Resize":
+                toggle = _StageToggle(checked=True, icon_path=_STAGE_CHECKED_SVG)
+            elif title == "Output":
+                toggle = _StageToggle(checked=True, icon_path=_IMAGE_SVG)
             card = _PipelineCard(title, subtitle, icon_name,
-                                 expanded=title == "Remove Background")
+                                 expanded=title == "Remove Background",
+                                 toggle_widget=toggle)
             card.toggled.connect(self._on_card_toggled)
             if title == "Remove Background":
                 card.set_content_widget(_RemoveBgSettings())
