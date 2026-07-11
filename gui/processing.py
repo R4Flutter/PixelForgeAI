@@ -1648,6 +1648,8 @@ class ProcessingPage(QWidget):
 
     def on_stage(self, stage: str) -> None:
         if stage == "Completed":
+            self._desc_label.setText("")
+            self._stage_status.setText("Complete")
             return
 
         idx = _STAGE_LABEL_TO_INDEX.get(stage, -1)

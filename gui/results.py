@@ -4,24 +4,25 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Set
 
 from PySide6.QtCore import (
     Qt, QTimer, Signal, QPropertyAnimation, QEasingCurve,
     QParallelAnimationGroup, QSequentialAnimationGroup, QPauseAnimation,
-    QPointF, QRectF, QSize, Property,
+    QPointF, QRectF, QSize, Property, QEvent,
 )
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontDatabase, QLinearGradient, QPainter,
     QPainterPath, QPen, QPixmap, QRadialGradient, QFontMetrics,
+    QEnterEvent, QMouseEvent, QWheelEvent, QAction,
 )
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
+    QGraphicsDropShadowEffect, QMenu,
 )
 
 from components.buttons import PrimaryButton, SecondaryButton
-from components.carousel import CoverFlowCarousel
 from components.icons import icon, pixmap
 from core.event_bus import EventBus
 from models.pipeline_result import ImageResultData, PipelineResult
@@ -29,7 +30,6 @@ from models.pipeline_result import ImageResultData, PipelineResult
 from design_system.tokens.colors import Colors as C
 from design_system.tokens.spacing import Spacing as S
 from design_system.tokens.typography import Typography as T
-from design_system.tokens.elevation import Elevation as E
 
 
 def _reduced() -> bool:
@@ -41,7 +41,14 @@ def _fmt_time(seconds: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
-class _CinematicBadge(QWidget):
+def _tk(hex_str: str) -> QColor:
+    return QColor(hex_str)
+
+
+_BRIGHTEN = 1.25
+
+
+class _GlowBadge(QWidget):
     def __init__(self, succeeded: bool, parent=None) -> None:
         super().__init__(parent)
         self._succeeded = succeeded
@@ -50,7 +57,7 @@ class _CinematicBadge(QWidget):
         self._pulse = 0.0
         self._glow_opacity = 0.0
         self._glow_phase = 0.0
-        self.setFixedSize(96, 96)
+        self.setFixedSize(88, 88)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
 
         if not _reduced():
@@ -120,7 +127,7 @@ class _CinematicBadge(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
         cx, cy = w / 2, h / 2
-        r = 38
+        r = 34
         bar_w = 3
 
         color = QColor(C.success) if self._succeeded else QColor(C.error)
@@ -164,12 +171,12 @@ class _CinematicBadge(QWidget):
                 p.setOpacity(self._check_progress)
             if self._succeeded:
                 path = QPainterPath()
-                path.moveTo(cx - 11, cy + 1)
-                path.lineTo(cx - 3, cy + 8)
-                path.lineTo(cx + 11, cy - 7)
+                path.moveTo(cx - 10, cy + 1)
+                path.lineTo(cx - 3, cy + 7)
+                path.lineTo(cx + 10, cy - 6)
                 p.drawPath(path)
             else:
-                off = 8
+                off = 7
                 p.drawLine(QPointF(cx - off, cy - off), QPointF(cx + off, cy + off))
                 p.drawLine(QPointF(cx + off, cy - off), QPointF(cx - off, cy + off))
             if self._check_progress < 1.0:
@@ -179,17 +186,15 @@ class _CinematicBadge(QWidget):
 
 
 class _StatTile(QWidget):
-    def __init__(self, icon_name: str, value: str, label: str,
-                 color: QColor, parent=None) -> None:
+    def __init__(self, value: str, label: str, color: QColor, parent=None) -> None:
         super().__init__(parent)
-        self._icon_name = icon_name
         self._value = value
         self._label = label
         self._color = color
         self._hovered = False
         self._entrance_offset = 30.0
         self._entrance_opacity = 0.0
-        self.setFixedHeight(104)
+        self.setFixedHeight(88)
         self.setCursor(Qt.PointingHandCursor)
 
     def set_value(self, text: str) -> None:
@@ -237,7 +242,7 @@ class _StatTile(QWidget):
 
         bg = QColor(C.bg_card)
         if self._hovered:
-            bg = QColor(C.bg_surface)
+            bg = bg.lighter(120)
         p.setBrush(bg)
         p.setPen(QPen(QColor(C.border), 1))
         p.drawRoundedRect(0, 0, w - 1, h - 1, S.card_radius, S.card_radius)
@@ -250,156 +255,261 @@ class _StatTile(QWidget):
         bar_path.addRoundedRect(0, 0, 4, h - 1, 2, 2)
         p.drawPath(bar_path)
 
-        ic = pixmap(self._icon_name, S.icon_size, color=self._color.name())
-        p.drawPixmap(S.xl, S.lg, ic)
-
         f = QFont()
         f.setPointSize(T.size_xxl)
         f.setWeight(QFont.Bold)
         p.setFont(f)
-        val_rect = QRectF(S.xl, 44, w - S.xl * 2, 34)
+        val_rect = QRectF(S.xl, S.sm, w - S.xl * 2, 40)
         p.setPen(QColor(C.text_primary))
-        p.drawText(val_rect, Qt.AlignLeft | Qt.AlignVCenter, self._value)
+        p.drawText(val_rect, Qt.AlignLeft | Qt.AlignBottom, self._value)
 
         f2 = QFont()
         f2.setPointSize(T.size_xs)
         f2.setWeight(QFont.Medium)
         f2.setLetterSpacing(QFont.AbsoluteSpacing, 1.5)
         p.setFont(f2)
-        lbl_rect = QRectF(S.xl, 76, w - S.xl * 2, S.lg)
+        lbl_rect = QRectF(S.xl, 56, w - S.xl * 2, S.lg)
         p.setPen(QColor(C.text_muted))
         p.drawText(lbl_rect, Qt.AlignLeft | Qt.AlignVCenter, self._label.upper())
 
         p.end()
 
 
-class _CinematicCarousel(QWidget):
+class _ThumbnailCard(QFrame):
+    clicked = Signal(str)
+    double_clicked = Signal(str)
+
+    def __init__(self, path: str, index: int, parent=None) -> None:
+        super().__init__(parent)
+        self._path = path
+        self._index = index
+        self._selected = False
+
+        self.setFixedSize(180, 220)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setObjectName("Card")
+
+        vbox = QVBoxLayout(self)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(4)
+        vbox.setAlignment(Qt.AlignCenter)
+
+        self._image_label = QLabel()
+        self._image_label.setFixedSize(160, 140)
+        self._image_label.setAlignment(Qt.AlignCenter)
+        self._image_label.setStyleSheet(
+            f"background-color: {C.bg_surface}; border-radius: 12px;"
+        )
+        vbox.addWidget(self._image_label, 0, Qt.AlignCenter)
+
+        self._name_label = QLabel(Path(path).name)
+        self._name_label.setAlignment(Qt.AlignCenter)
+        self._name_label.setStyleSheet(
+            f"color: {C.text_secondary}; font-size: {T.size_xs}px; background: transparent;"
+        )
+        vbox.addWidget(self._name_label)
+
+        self._load_timer = QTimer(self)
+        self._load_timer.setSingleShot(True)
+        self._load_timer.timeout.connect(self._do_load)
+
+    def set_selected(self, selected: bool) -> None:
+        self._selected = selected
+
+    def load_async(self, delay: int = 0) -> None:
+        self._load_timer.start(delay)
+
+    def _do_load(self) -> None:
+        pm = QPixmap(self._path)
+        if pm.isNull():
+            self._image_label.setText("\u274c")
+            return
+        scaled = pm.scaled(154, 134, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self._image_label.setPixmap(scaled)
+        self._image_label.setStyleSheet("background: transparent; border-radius: 12px;")
+
+    def enterEvent(self, event: QEnterEvent) -> None:
+        self._image_label.setStyleSheet(
+            "background: transparent; border-radius: 12px; "
+            f"border: 2px solid {C.accent};"
+        )
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._image_label.setStyleSheet("background: transparent; border-radius: 12px;")
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        super().mousePressEvent(event)
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self._path)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        super().mouseDoubleClickEvent(event)
+        if event.button() == Qt.LeftButton:
+            from PySide6.QtGui import QDesktopServices
+            from PySide6.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self._path))
+
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu(self)
+        open_a = QAction("Open", self)
+        open_a.triggered.connect(lambda: self.double_clicked.emit(self._path))
+        menu.addAction(open_a)
+        folder_a = QAction("Open Containing Folder", self)
+        folder_a.triggered.connect(self._open_folder)
+        menu.addAction(folder_a)
+        copy_a = QAction("Copy Path", self)
+        copy_a.triggered.connect(self._copy_path)
+        menu.addAction(copy_a)
+        menu.exec(event.globalPos())
+
+    def _open_folder(self) -> None:
+        folder = Path(self._path).parent
+        try:
+            if sys.platform == "win32":
+                os.startfile(str(folder))
+        except Exception:
+            pass
+
+    def _copy_path(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self._path)
+
+
+class _PremiumCarousel(QWidget):
     current_image_changed = Signal(str)
     download_requested = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._entrance_opacity = 0.0
-        self._entrance_offset = 40.0
-        self._current_path = ""
+        self._cards: List[_ThumbnailCard] = []
+        self._paths: List[str] = []
+        self._selected_path: str = ""
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(S.md)
+        self.setMinimumHeight(280)
 
-        header_row = QHBoxLayout()
-        header_row.setSpacing(S.sm)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        ic = QLabel()
-        ic.setPixmap(pixmap("image", 16, color=C.text_secondary))
-        header_row.addWidget(ic)
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(False)
+        self._scroll_area.setFrameShape(QScrollArea.NoFrame)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll_area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self._scroll_area.installEventFilter(self)
 
-        header = QLabel("OUTPUT GALLERY")
-        header.setObjectName("SectionLabel")
-        header_row.addWidget(header)
+        self._scroll_content = QWidget()
+        self._scroll_content.setStyleSheet("background: transparent;")
+        self._card_layout = QHBoxLayout(self._scroll_content)
+        self._card_layout.setContentsMargins(S.xl, S.sm, S.xl, S.sm)
+        self._card_layout.setSpacing(S.md)
+        self._card_layout.addStretch(1)
 
-        self._count_label = QLabel("0 images")
-        self._count_label.setStyleSheet(f"color: {C.text_muted}; font-size: {T.size_sm}px;")
-        header_row.addWidget(self._count_label)
+        self._scroll_area.setWidget(self._scroll_content)
+        outer.addWidget(self._scroll_area, 1)
+        self._nav_opacity = 0.0
+        self._nav_hovered = False
+        self.setMouseTracking(True)
 
-        header_row.addStretch(1)
-
-        self._prev_btn = QPushButton()
-        self._prev_btn.setObjectName("GhostButton")
-        self._prev_btn.setFixedSize(28, 28)
-        self._prev_btn.setText("\u25C0")
-        self._prev_btn.clicked.connect(self._go_prev)
-        header_row.addWidget(self._prev_btn)
-
-        self._next_btn = QPushButton()
-        self._next_btn.setObjectName("GhostButton")
-        self._next_btn.setFixedSize(28, 28)
-        self._next_btn.setText("\u25B6")
-        self._next_btn.clicked.connect(self._go_next)
-        header_row.addWidget(self._next_btn)
-
-        layout.addLayout(header_row)
-
-        self._carousel = CoverFlowCarousel()
-        self._carousel.setMinimumHeight(300)
-        self._carousel.current_index_changed.connect(self._on_index_changed)
-        layout.addWidget(self._carousel, 1)
-
-        info_row = QHBoxLayout()
-        info_row.setSpacing(S.sm)
-
-        self._filename_label = QLabel("")
-        self._filename_label.setStyleSheet(f"color: {C.text_secondary}; font-size: {T.size_md}px;")
-        info_row.addWidget(self._filename_label)
-
-        info_row.addStretch(1)
-
-        self._dl_btn = QPushButton()
-        self._dl_btn.setObjectName("GhostButton")
-        self._dl_btn.setFixedSize(32, 32)
-        self._dl_btn.setText("\u2B07")
-        self._dl_btn.setToolTip("Save this image")
-        self._dl_btn.clicked.connect(self._on_download)
-        info_row.addWidget(self._dl_btn)
-
-        layout.addLayout(info_row)
-
-    def _go_prev(self) -> None:
-        self._carousel.select_previous()
-
-    def _go_next(self) -> None:
-        self._carousel.select_next()
-
-    def _on_index_changed(self, idx: int) -> None:
-        paths = self._carousel.get_paths()
-        if 0 <= idx < len(paths):
-            self._current_path = paths[idx]
-            name = Path(paths[idx]).name
-            self._filename_label.setText(name)
-            self.current_image_changed.emit(paths[idx])
-
-    def _on_download(self) -> None:
-        if self._current_path:
-            self.download_requested.emit(self._current_path)
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self._scroll_area and event.type() == QEvent.Wheel:
+            delta = event.angleDelta().y()
+            sb = self._scroll_area.horizontalScrollBar()
+            sb.setValue(int(sb.value() - delta * 0.5))
+            return True
+        return super().eventFilter(obj, event)
 
     def set_images(self, results: List[ImageResultData]) -> None:
-        paths: List[str] = []
-        for ir in results:
-            p = str(ir.output_path or ir.source_path)
-            paths.append(p)
-        self._carousel.set_paths(paths)
-        self._count_label.setText(f"{len(paths)} images")
-        self._filename_label.setText(Path(paths[0]).name if paths else "")
-        self.setVisible(len(paths) > 0)
+        for c in self._cards:
+            c.deleteLater()
+        self._cards.clear()
+        self._paths.clear()
 
-    def animate_in(self, delay: int = 0) -> QSequentialAnimationGroup:
-        anim = QPropertyAnimation(self, b"entrance_offset", self)
-        anim.setDuration(600)
-        anim.setStartValue(40.0)
-        anim.setEndValue(0.0)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-        group = QSequentialAnimationGroup(self)
-        group.addPause(delay)
-        group.addAnimation(anim)
-        return group
+        for i, ir in enumerate(results):
+            path = str(ir.output_path or ir.source_path)
+            self._paths.append(path)
+            card = _ThumbnailCard(path, i, self)
+            card.clicked.connect(self._on_card_clicked)
+            card.double_clicked.connect(self._on_card_double_clicked)
+            card.load_async(delay=i * 30)
+            self._cards.append(card)
 
-    def _get_offset(self) -> float:
-        return self._entrance_offset
+        for i, card in enumerate(self._cards):
+            self._card_layout.insertWidget(i, card, 0, Qt.AlignLeft)
 
-    def _set_offset(self, v: float) -> None:
-        self._entrance_offset = v
-        self._entrance_opacity = max(0.0, 1.0 - v / 40.0)
+        if self._cards:
+            self._cards[0].set_selected(True)
+            self._selected_path = self._paths[0]
+            self.current_image_changed.emit(self._paths[0])
+
+        for card in self._cards:
+            card.show()
+
+    def _on_card_clicked(self, path: str) -> None:
+        for c in self._cards:
+            c.set_selected(c._path == path)
+        self._selected_path = path
+        self.current_image_changed.emit(path)
+
+    def _on_card_double_clicked(self, path: str) -> None:
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def enterEvent(self, event: QEnterEvent) -> None:
+        self._nav_hovered = True
+        self._nav_fade(0.6)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._nav_hovered = False
+        self._nav_fade(0.0)
+        super().leaveEvent(event)
+
+    def _nav_fade(self, target: float) -> None:
+        a = QPropertyAnimation(self, b"nav_opacity", self)
+        a.setDuration(250)
+        a.setEasingCurve(QEasingCurve.OutCubic)
+        a.setStartValue(self._nav_opacity)
+        a.setEndValue(target)
+        a.start()
+
+    def _get_nav_op(self) -> float:
+        return self._nav_opacity
+
+    def _set_nav_op(self, v: float) -> None:
+        self._nav_opacity = v
         self.update()
 
-    entrance_offset = Property(float, _get_offset, _set_offset)
+    nav_opacity = Property(float, _get_nav_op, _set_nav_op)
 
     def paintEvent(self, event) -> None:
-        if self._entrance_opacity < 1.0:
-            p = QPainter(self)
-            p.setOpacity(1.0 - self._entrance_opacity)
-            p.fillRect(self.rect(), QColor(C.bg_primary))
-            p.end()
-        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+
+        if self._nav_opacity > 0.01:
+            for direction in (-1, 1):
+                btn_size = 36
+                bx = 8 if direction == -1 else w - 8 - btn_size
+                by = (h - btn_size) / 2
+
+                c = QColor(C.bg_surface)
+                c.setAlpha(int(180 * self._nav_opacity))
+                p.setBrush(c)
+                p.setPen(QPen(QColor(C.border), 1))
+                p.drawRoundedRect(QRectF(bx, by, btn_size, btn_size), btn_size / 2, btn_size / 2)
+
+                p.setPen(QColor(C.text_primary))
+                f = QFont(["Inter", "Segoe UI", "sans-serif"], 14)
+                p.setFont(f)
+                arrow = "\u25C0" if direction == -1 else "\u25B6"
+                p.drawText(QRectF(bx, by, btn_size, btn_size), Qt.AlignCenter, arrow)
+
+        p.end()
 
 
 class _FailedFileCard(QFrame):
@@ -414,10 +524,6 @@ class _FailedFileCard(QFrame):
 
         header_row = QHBoxLayout()
         header_row.setSpacing(S.xs)
-
-        warn_ic = QLabel()
-        warn_ic.setPixmap(pixmap("warn", 16, color=str(QColor(C.warning).name())))
-        header_row.addWidget(warn_ic)
 
         self._title = QLabel("FAILED FILES")
         self._title.setObjectName("SectionLabel")
@@ -464,11 +570,123 @@ class _FailedFileCard(QFrame):
         self._toggle_btn.setText("\u25B6" if self._collapsed else "\u25BC")
 
 
-class _SectionDivider(QFrame):
+class _OutputFolderTile(QFrame):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setObjectName("Divider")
-        self.setFixedHeight(1)
+        self._folder_path = ""
+        self.setObjectName("Card")
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(S.xl, S.md, S.xl, S.md)
+        outer.setSpacing(S.sm)
+
+        header = QLabel("OUTPUT FOLDER")
+        header.setStyleSheet(f"color: {C.text_muted}; font-size: {T.size_xs}px; letter-spacing: 1.5px; font-weight: 600;")
+        outer.addWidget(header)
+
+        row = QHBoxLayout()
+        row.setSpacing(S.sm)
+
+        self._path_label = QLabel("")
+        self._path_label.setStyleSheet(
+            f"color: {C.text_secondary}; font-size: {T.size_sm}px; "
+            "font-family: 'Cascadia Mono', 'Consolas', monospace;"
+        )
+        self._path_label.setWordWrap(True)
+        row.addWidget(self._path_label, 1)
+
+        self._open_btn = QPushButton("  Open Folder")
+        self._open_btn.setObjectName("GhostButton")
+        self._open_btn.setIcon(icon("folder_open", 14))
+        self._open_btn.clicked.connect(self._open)
+        row.addWidget(self._open_btn)
+
+        self._copy_btn = QPushButton("  Copy Path")
+        self._copy_btn.setObjectName("GhostButton")
+        self._copy_btn.setIcon(icon("link", 14))
+        self._copy_btn.clicked.connect(self._copy)
+        row.addWidget(self._copy_btn)
+
+        outer.addLayout(row)
+
+    def set_path(self, path: str) -> None:
+        self._folder_path = path
+        self._path_label.setText(path)
+
+    def _open(self) -> None:
+        if not self._folder_path:
+            return
+        try:
+            if sys.platform == "win32":
+                os.startfile(self._folder_path)
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", self._folder_path])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", self._folder_path])
+        except Exception:
+            pass
+
+    def _copy(self) -> None:
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(self._folder_path)
+
+
+class _SummaryTile(QWidget):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._items: List[str] = []
+        self._entrance_offset = 20.0
+        self.setFixedHeight(120)
+
+    def set_items(self, items: List[str]) -> None:
+        self._items = items
+        self.update()
+
+    def animate_in(self, delay: int = 0) -> QSequentialAnimationGroup:
+        anim = QPropertyAnimation(self, b"sum_offset", self)
+        anim.setDuration(400)
+        anim.setStartValue(20.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        group = QSequentialAnimationGroup(self)
+        group.addPause(delay)
+        group.addAnimation(anim)
+        return group
+
+    def _get_so(self) -> float:
+        return self._entrance_offset
+
+    def _set_so(self, v: float) -> None:
+        self._entrance_offset = v
+        self.update()
+
+    sum_offset = Property(float, _get_so, _set_so)
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        p.translate(0, self._entrance_offset)
+        p.setOpacity(max(0.0, 1.0 - self._entrance_offset / 20.0))
+
+        p.setBrush(QColor(C.bg_card))
+        p.setPen(QPen(QColor(C.border), 1))
+        p.drawRoundedRect(0, 0, w - 1, h - 1, S.card_radius, S.card_radius)
+
+        f = QFont()
+        f.setPointSize(T.size_sm)
+        f.setWeight(QFont.Medium)
+        p.setFont(f)
+        p.setPen(QColor(C.text_secondary))
+
+        y = S.md
+        for item in self._items:
+            p.drawText(S.xl, y, "\u2713  " + item)
+            y += S.lg + S.xs
+
+        p.end()
 
 
 class ResultsPage(QWidget):
@@ -499,26 +717,24 @@ class ResultsPage(QWidget):
         hero_row = QHBoxLayout()
         hero_row.setSpacing(S.lg)
 
-        self._badge = _CinematicBadge(True)
+        self._badge = _GlowBadge(True)
         hero_row.addWidget(self._badge, alignment=Qt.AlignTop)
 
         titles = QVBoxLayout()
         titles.setSpacing(S.xxs)
-        self._title = QLabel("All done!")
+        self._title = QLabel("")
         self._title.setObjectName("PageTitle")
-        self._title.setStyleSheet(f"color: {C.success};")
-        self._subtitle = QLabel("Every image processed successfully.")
+        self._subtitle = QLabel("")
         self._subtitle.setObjectName("PageSubtitle")
         titles.addWidget(self._title)
         titles.addWidget(self._subtitle)
 
         elapsed_container = QWidget()
-        elapsed_container.setFixedWidth(120)
         elapsed_layout = QVBoxLayout(elapsed_container)
         elapsed_layout.setContentsMargins(0, S.xs, 0, 0)
         elapsed_layout.setSpacing(2)
 
-        elapsed_label = QLabel("ELAPSED")
+        elapsed_label = QLabel("DURATION")
         elapsed_label.setStyleSheet(
             f"color: {C.text_muted}; font-size: {T.size_xs}px; "
             "letter-spacing: 1.5px; font-weight: 600;"
@@ -543,10 +759,10 @@ class ResultsPage(QWidget):
         stats_row = QHBoxLayout()
         stats_row.setSpacing(S.md)
 
-        self._stat_total = _StatTile("image", "0", "Total Images", QColor(C.accent))
-        self._stat_succeeded = _StatTile("check", "0", "Succeeded", QColor(C.success))
-        self._stat_failed = _StatTile("close", "0", "Failed", QColor(C.error))
-        self._stat_time = _StatTile("clock", "00:00", "Elapsed", QColor(C.text_secondary))
+        self._stat_total = _StatTile("0", "Total Images", QColor(C.accent))
+        self._stat_succeeded = _StatTile("0", "Succeeded", QColor(C.success))
+        self._stat_failed = _StatTile("0", "Failed", QColor(C.error))
+        self._stat_time = _StatTile("00:00", "Elapsed", QColor(C.text_secondary))
 
         for st in (self._stat_total, self._stat_succeeded, self._stat_failed, self._stat_time):
             st.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -556,24 +772,23 @@ class ResultsPage(QWidget):
 
         root.addWidget(_SectionDivider())
 
-        self._carousel = _CinematicCarousel()
-        self._carousel.setMinimumHeight(340)
+        self._summary = _SummaryTile()
+        root.addWidget(self._summary)
+
+        self._carousel = _PremiumCarousel()
+        self._carousel.setMinimumHeight(280)
         self._carousel.download_requested.connect(self._on_download_image)
         root.addWidget(self._carousel, 1)
 
         self._failed_card = _FailedFileCard()
         root.addWidget(self._failed_card)
 
-        root.addStretch(1)
+        self._output_tile = _OutputFolderTile()
+        root.addWidget(self._output_tile)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(S.md)
         btn_row.addStretch(1)
-
-        self._open_btn = SecondaryButton("  Open Output Folder")
-        self._open_btn.setIcon(icon("folder_open", 18))
-        self._open_btn.clicked.connect(self._open_folder)
-        btn_row.addWidget(self._open_btn)
 
         self._again_btn = PrimaryButton("  Process Again")
         self._again_btn.setIcon(icon("refresh", 18, color="#FFFFFF"))
@@ -581,6 +796,7 @@ class ResultsPage(QWidget):
         btn_row.addWidget(self._again_btn)
 
         root.addLayout(btn_row)
+        root.addStretch(1)
 
         scroll.setWidget(inner)
         outer_root = QVBoxLayout(self)
@@ -597,7 +813,7 @@ class ResultsPage(QWidget):
         for i, tile in enumerate(tiles):
             group.addAnimation(tile.animate_in(delay=200 + i * 100))
 
-        group.addAnimation(self._carousel.animate_in(delay=700))
+        group.addAnimation(self._summary.animate_in(delay=700))
 
         group.start()
 
@@ -613,7 +829,7 @@ class ResultsPage(QWidget):
         self._badge.animate_in()
 
         if is_success:
-            self._title.setText("All done!")
+            self._title.setText("Processing Complete")
             self._title.setStyleSheet(f"color: {C.success};")
             self._subtitle.setText("Every image processed successfully.")
         elif is_cancelled:
@@ -633,6 +849,16 @@ class ResultsPage(QWidget):
         self._elapsed_value.setText(_fmt_time(result.elapsed_seconds))
 
         self._failed_card.set_files(result.failed_files)
+
+        summary_items = []
+        if result.succeeded > 0:
+            summary_items.append("Background Removed")
+            summary_items.append("Upscaled")
+            summary_items.append("Resized")
+            summary_items.append("Saved Successfully")
+        self._summary.set_items(summary_items)
+
+        self._output_tile.set_path(output_folder)
 
         self._carousel.set_images(result.image_results)
 
@@ -655,19 +881,9 @@ class ResultsPage(QWidget):
                 from core.logger import get_logger
                 get_logger(__name__).error(f"Failed to save image: {e}")
 
-    def _open_folder(self) -> None:
-        folder = self._output_folder
-        if not folder:
-            return
-        try:
-            if sys.platform == "win32":
-                os.startfile(folder)
-            elif sys.platform == "darwin":
-                import subprocess
-                subprocess.Popen(["open", folder])
-            else:
-                import subprocess
-                subprocess.Popen(["xdg-open", folder])
-        except Exception as e:
-            from core.logger import get_logger
-            get_logger(__name__).error(f"Failed to open folder: {e}")
+
+class _SectionDivider(QFrame):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("Divider")
+        self.setFixedHeight(1)

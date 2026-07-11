@@ -117,7 +117,7 @@ class MainWindow(QMainWindow):
             output_folder=event.output_folder,
         )
         self._results.show_result(result, event.output_folder)
-        self._navigate(2)
+        self._navigate(2, instant=True)
         self._refresh_footer()
 
     def _on_pipeline_started(self, event: PipelineStartedEvent) -> None:
@@ -132,7 +132,7 @@ class MainWindow(QMainWindow):
         self._results.process_again.connect(self._process_again)
         self._settings_page.settings_changed.connect(self._on_settings_changed)
 
-    def _navigate(self, idx: int) -> None:
+    def _navigate(self, idx: int, instant: bool = False) -> None:
         if self._is_running() and idx != 1:
             return
         outgoing = self._stack.currentWidget()
@@ -142,6 +142,13 @@ class MainWindow(QMainWindow):
             return
 
         if outgoing is None:
+            self._stack.setCurrentIndex(idx)
+            self._sidebar.set_active(idx)
+            self._last_nav_idx = idx
+            return
+
+        if instant:
+            self._transition.cancel()
             self._stack.setCurrentIndex(idx)
             self._sidebar.set_active(idx)
             self._last_nav_idx = idx
@@ -203,6 +210,8 @@ class MainWindow(QMainWindow):
 
             self._last_output = self._resolved_output(self._settings)
             self._processing.begin(total, paths=list(job.sources))
+            first = list(job.sources)[0] if job.sources else ""
+            self._transition.set_shared_image(first)
             self._navigate(1)
             self._set_running(True)
             w.start()
@@ -254,7 +263,7 @@ class MainWindow(QMainWindow):
             output_folder=self._last_output,
         )
         self._results.show_result(result, self._last_output)
-        self._navigate(2)
+        self._navigate(2, instant=True)
         self._refresh_footer()
 
     def _process_again(self) -> None:
