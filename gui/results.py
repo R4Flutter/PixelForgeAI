@@ -275,11 +275,13 @@ class _StatTile(QWidget):
 
 class _CinematicCarousel(QWidget):
     current_image_changed = Signal(str)
+    download_requested = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._entrance_opacity = 0.0
         self._entrance_offset = 40.0
+        self._current_path = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -328,10 +330,17 @@ class _CinematicCarousel(QWidget):
 
         self._filename_label = QLabel("")
         self._filename_label.setStyleSheet(f"color: {C.text_secondary}; font-size: {T.size_md}px;")
-        self._filename_label.setAlignment(Qt.AlignCenter)
-        info_row.addStretch(1)
         info_row.addWidget(self._filename_label)
+
         info_row.addStretch(1)
+
+        self._dl_btn = QPushButton()
+        self._dl_btn.setObjectName("GhostButton")
+        self._dl_btn.setFixedSize(32, 32)
+        self._dl_btn.setText("\u2B07")
+        self._dl_btn.setToolTip("Save this image")
+        self._dl_btn.clicked.connect(self._on_download)
+        info_row.addWidget(self._dl_btn)
 
         layout.addLayout(info_row)
 
@@ -344,9 +353,14 @@ class _CinematicCarousel(QWidget):
     def _on_index_changed(self, idx: int) -> None:
         paths = self._carousel.get_paths()
         if 0 <= idx < len(paths):
+            self._current_path = paths[idx]
             name = Path(paths[idx]).name
             self._filename_label.setText(name)
             self.current_image_changed.emit(paths[idx])
+
+    def _on_download(self) -> None:
+        if self._current_path:
+            self.download_requested.emit(self._current_path)
 
     def set_images(self, results: List[ImageResultData]) -> None:
         paths: List[str] = []
@@ -544,6 +558,7 @@ class ResultsPage(QWidget):
 
         self._carousel = _CinematicCarousel()
         self._carousel.setMinimumHeight(340)
+        self._carousel.download_requested.connect(self._on_download_image)
         root.addWidget(self._carousel, 1)
 
         self._failed_card = _FailedFileCard()
@@ -624,6 +639,21 @@ class ResultsPage(QWidget):
         if not self._entered:
             self._entered = True
             self._play_entrance_sequence()
+
+    def _on_download_image(self, path: str) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        default_name = Path(path).name
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Image", default_name,
+            "Images (*.png *.jpg *.jpeg *.webp *.tiff);;All Files (*)"
+        )
+        if save_path:
+            import shutil
+            try:
+                shutil.copy2(path, save_path)
+            except Exception as e:
+                from core.logger import get_logger
+                get_logger(__name__).error(f"Failed to save image: {e}")
 
     def _open_folder(self) -> None:
         folder = self._output_folder

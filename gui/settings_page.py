@@ -45,6 +45,7 @@ from backend.license import LicenseTier
 from components.buttons import GhostButton, PrimaryButton, SecondaryButton
 from components.cards import SectionCard
 from components.icons import icon
+from components.toggle import NeumorphicToggle
 
 _COLOR_ACTIVE = "#7C5CFF"
 _COLOR_CARD = "#12141C"
@@ -668,7 +669,7 @@ class SettingsPage(QWidget):
         self._fmt.currentIndexChanged.connect(self._on_format_changed)
         form.addRow(self._field("Format"), self._fmt)
 
-        self._open_output = QCheckBox("Open output folder after completion")
+        self._open_output = NeumorphicToggle("Open output folder after completion")
         self._open_output.toggled.connect(self._emit_changed)
         form.addRow("", self._open_output)
 
@@ -1027,8 +1028,7 @@ class SettingsPage(QWidget):
         lbl.setObjectName("FieldLabel")
         return lbl
 
-    def _toggle(self, text: str) -> QCheckBox:
-        cb = QCheckBox(text)
-        cb.setObjectName("Toggle")
-        cb.stateChanged.connect(self._emit_changed)
+    def _toggle(self, text: str) -> NeumorphicToggle:
+        cb = NeumorphicToggle(text)
+        cb.toggled.connect(self._emit_changed)
         return cb

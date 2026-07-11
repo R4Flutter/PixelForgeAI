@@ -10,14 +10,15 @@ from typing import List, Optional
 
 from PySide6.QtCore import (
     Qt, QTimer, Signal, QPropertyAnimation, QEasingCurve,
-    QPointF, QRectF, QSizeF, Property, QElapsedTimer, QParallelAnimationGroup,
-    QSequentialAnimationGroup, QPauseAnimation,
+    QPointF, QRectF, QSizeF, QByteArray, Property, QElapsedTimer,
+    QParallelAnimationGroup, QSequentialAnimationGroup, QPauseAnimation,
 )
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontDatabase, QLinearGradient, QPainter,
     QPainterPath, QPen, QPixmap, QRadialGradient, QConicalGradient,
     QEnterEvent, QMouseEvent, QRegion,
 )
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QFrame, QGraphicsDropShadowEffect, QGraphicsBlurEffect,
     QGraphicsOpacityEffect, QHBoxLayout, QLabel,
@@ -26,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from backend.job import RunSummary
 from components.buttons import DangerButton, PrimaryButton
-from components.icons import icon
+
 
 from design_system.tokens.colors import Colors
 from design_system.tokens.spacing import Spacing
@@ -57,14 +58,6 @@ _STAGE_LABEL_TO_INDEX = {
 }
 _STAGE_KEYS: tuple[str, ...] = (*_STAGE_LABEL_TO_INDEX.keys(), "Completed")
 
-_CYCLE_STATUSES = [
-    "Analyzing...",
-    "Processing...",
-    "Reconstructing...",
-    "Optimizing...",
-    "Refining...",
-    "Finalizing...",
-]
 
 ANIM_CONSTRUCTION = 2000
 ANIM_CHECKMARK = 200
@@ -437,6 +430,17 @@ class _ProcessingOverlay(QWidget):
         self._phase = 0.0
         self._anim_opacity = 0.0
         self._dot_phase = 0.0
+        self._loader_time = 0.0
+
+        svg_path = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "assets", "icons", "flower-loader.svg")
+        )
+        self._renderer: QSvgRenderer | None = None
+        try:
+            with open(svg_path, "rb") as f:
+                self._renderer = QSvgRenderer(QByteArray(f.read()))
+        except Exception:
+            pass
 
         if not _reduced():
             self._timer = QTimer(self)
@@ -464,6 +468,7 @@ class _ProcessingOverlay(QWidget):
             self._anim_opacity = min(1.0, self._anim_opacity + 0.035)
             self._phase += 0.05
             self._dot_phase += 0.02
+            self._loader_time += 0.016
             self.update()
 
     def paintEvent(self, event) -> None:
@@ -537,38 +542,93 @@ class _ProcessingOverlay(QWidget):
             p.setFont(df)
             p.drawText(dr, Qt.AlignCenter, f"reconstructing{dots}")
 
+        self._draw_loader(p, w, h)
         p.end()
 
+    def _draw_loader(self, p: QPainter, w: int, h: int) -> None:
+        if self._renderer is None:
+            return
+        base_size = 48
+        cx = w / 2
+        ay = h * 0.35
 
-class _PremiumPipelineNode(QWidget):
+        for i, delay in enumerate([0.0, 0.3, 0.6]):
+            t = (self._loader_time - delay) % 1.0
+            if t < 0:
+                t += 1.0
+
+            if t < 0.25:
+                progress = t / 0.25
+                scale = 0.5 + 0.25 * progress
+                y_off = -50 + 25 * progress
+                opacity = self._anim_opacity * progress
+            elif t < 0.5:
+                progress = (t - 0.25) / 0.25
+                scale = 0.75 + 0.25 * progress
+                y_off = -25 + 25 * progress
+                opacity = self._anim_opacity * 1.0
+            elif t < 0.75:
+                progress = (t - 0.5) / 0.25
+                scale = 1.0 - 0.5 * progress
+                y_off = 0 + 15 * progress
+                opacity = self._anim_opacity * 1.0
+            else:
+                progress = (t - 0.75) / 0.25
+                scale = 0.5 - 0.5 * progress
+                y_off = 15 + 10 * progress
+                opacity = self._anim_opacity * (1.0 - progress)
+
+            sz = base_size * scale
+            rot = t * 10
+            p.save()
+            p.translate(cx, ay + y_off)
+            p.rotate(rot)
+            p.setOpacity(opacity)
+            self._renderer.render(p, QRectF(-sz / 2, -sz / 2, sz, sz))
+            p.restore()
+
+
+class _StepperNode(QWidget):
     class State(Enum):
         WAITING = auto()
         ACTIVE = auto()
         COMPLETED = auto()
         FAILED = auto()
 
-    RADIUS = 12
+    CIR = 20
+    GAP = 14
 
     def __init__(self, index: int, name: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._index = index
         self._name = name
-        self._state = _PremiumPipelineNode.State.WAITING
-        self._pulse = 0.0
-        self._progress = 0.0
-        self._checkmark_progress = 0.0
-        self._glow_opacity = 0.0
-        self._breath_phase = 0.0
-        self._scale = 1.0
-        self._shake_offset = 0.0
-        self._shake_timer: QTimer | None = None
-        self._indicator = _RotatingIndicator(self)
-        self._indicator.hide()
+        self._status_text = ""
+        self._time_text = ""
+        self._state = _StepperNode.State.WAITING
+        self._glow_phase = 0.0
+        self._check_progress = 0.0
         self._pulse_timer = QTimer(self)
         self._pulse_timer.setInterval(30)
         self._pulse_timer.timeout.connect(self._pulse_tick)
-        self.setFixedHeight(self.RADIUS * 2 + 4)
-        self.setMinimumWidth(160)
+
+        self._title_lbl = QLabel(name, self)
+        self._title_lbl.setFont(QFont(["Inter", "Segoe UI", "sans-serif"], 14, QFont.DemiBold))
+
+        self._badge_lbl = QLabel("Pending", self)
+        self._badge_lbl.setFont(QFont(["Inter", "Segoe UI", "sans-serif"], 11))
+        self._badge_lbl.setStyleSheet(
+            f"color: {COL.text_muted}; background: transparent;"
+        )
+
+        self._time_lbl = QLabel("", self)
+        self._time_lbl.setFont(QFont(["Inter", "Segoe UI", "sans-serif"], 10))
+        self._time_lbl.setStyleSheet(
+            f"color: {COL.text_muted}; background: transparent;"
+        )
+        self._time_lbl.hide()
+
+        self.setFixedHeight(84)
+        self.setMinimumWidth(180)
 
     @property
     def state(self) -> State:
@@ -578,584 +638,417 @@ class _PremiumPipelineNode(QWidget):
         if self._state == state:
             return
         self._state = state
-        if state is _PremiumPipelineNode.State.ACTIVE:
-            self._pulse = 0.0
-            self._breath_phase = 0.0
-            self._glow_opacity = 0.0
+        if state is _StepperNode.State.ACTIVE:
+            self._glow_phase = 0.0
             self._pulse_timer.start()
+            self._badge_lbl.setText("In Progress")
+            self._time_lbl.hide()
+        elif state is _StepperNode.State.COMPLETED:
+            self._pulse_timer.stop()
+            self._glow_phase = 0.0
+            self._check_progress = 0.0
+            self._badge_lbl.setText("Completed")
             if animate and not _reduced():
-                scale_anim = QPropertyAnimation(self, b"node_scale", self)
-                scale_anim.setDuration(ANIM_NODE_ACTIVATE)
-                scale_anim.setStartValue(1.0)
-                scale_anim.setEndValue(1.25)
-                scale_anim.setEasingCurve(QEasingCurve.OutBack)
-                scale_back = QPropertyAnimation(self, b"node_scale", self)
-                scale_back.setDuration(200)
-                scale_back.setStartValue(1.25)
-                scale_back.setEndValue(1.0)
-                scale_back.setEasingCurve(QEasingCurve.InOutCubic)
-                group = QSequentialAnimationGroup(self)
-                group.addAnimation(scale_anim)
-                group.addAnimation(scale_back)
-                group.start()
+                anim = QPropertyAnimation(self, b"check_progress", self)
+                anim.setDuration(ANIM_CHECKMARK)
+                anim.setStartValue(0.0)
+                anim.setEndValue(1.0)
+                anim.setEasingCurve(QEasingCurve.OutBack)
+                anim.start()
+            else:
+                self._check_progress = 1.0
+        elif state is _StepperNode.State.WAITING:
+            self._pulse_timer.stop()
+            self._glow_phase = 0.0
+            self._badge_lbl.setText("Pending")
+            self._time_lbl.setText("Waiting...")
+            self._time_lbl.show()
         else:
             self._pulse_timer.stop()
-            self._pulse = 0.0
-            self._glow_opacity = 0.0
-            self._scale = 1.0
-        if state is _PremiumPipelineNode.State.COMPLETED and animate and not _reduced():
-            self._progress = 0.0
-            self._checkmark_progress = 0.0
-            anim = QPropertyAnimation(self, b"ring_progress", self)
-            anim.setDuration(ANIM_CHECKMARK)
-            anim.setStartValue(0.0)
-            anim.setEndValue(1.0)
-            anim.setEasingCurve(QEasingCurve.OutCubic)
-            anim.finished.connect(self._start_checkmark)
-            anim.start()
-        elif state is _PremiumPipelineNode.State.COMPLETED and not animate:
-            self._progress = 1.0
-            self._checkmark_progress = 1.0
-        if state is _PremiumPipelineNode.State.FAILED:
-            self._start_shake()
+            self._glow_phase = 0.0
+            self._badge_lbl.setText("Failed")
+            self._time_lbl.hide()
+        self._update_label_styles()
         self.update()
 
-    def _start_checkmark(self) -> None:
-        anim = QPropertyAnimation(self, b"checkmark_progress", self)
-        anim.setDuration(ANIM_CHECKMARK)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.setEasingCurve(QEasingCurve.OutBack)
-        anim.start()
-
-    def _start_shake(self) -> None:
-        if _reduced():
-            return
-        self._shake_timer = QTimer(self)
-        self._shake_timer.setInterval(20)
-        self._shake_timer.timeout.connect(self._shake_tick)
-        self._shake_timer.start()
-
-    def _shake_tick(self) -> None:
-        decay = getattr(self, "_shake_decay", 1.0)
-        self._shake_offset = math.sin(time.time() * 120) * 3 * decay
-        self._shake_decay = max(0.0, decay - 0.04)
+    def set_status(self, text: str) -> None:
+        self._status_text = text
+        self._badge_lbl.setText(text)
+        self._badge_lbl.setVisible(True)
+        self._update_label_styles()
         self.update()
-        if self._shake_decay <= 0.0 and self._shake_timer:
-            self._shake_offset = 0.0
-            self._shake_timer.stop()
+
+    def set_time(self, text: str) -> None:
+        self._time_text = text
+        self._time_lbl.setText(text)
+        self._time_lbl.setVisible(bool(text))
+        self.update()
+
+    def _update_label_styles(self) -> None:
+        if self._state is _StepperNode.State.COMPLETED:
+            self._title_lbl.setStyleSheet(f"color: {COL.text_primary}; background: transparent;")
+            self._badge_lbl.setStyleSheet(f"color: {COL.success}; background: {COL.success}20; border-radius: 8px; padding: 1px 7px;")
+        elif self._state is _StepperNode.State.ACTIVE:
+            self._title_lbl.setStyleSheet(f"color: {COL.text_primary}; background: transparent;")
+            self._badge_lbl.setStyleSheet(f"color: {COL.accent}; background: {COL.accent}20; border-radius: 8px; padding: 1px 7px;")
+        elif self._state is _StepperNode.State.WAITING:
+            self._title_lbl.setStyleSheet(f"color: {COL.text_muted}; background: transparent;")
+            self._badge_lbl.setStyleSheet(f"color: {COL.text_muted}; background: {COL.text_muted}20; border-radius: 8px; padding: 1px 7px;")
+        elif self._state is _StepperNode.State.FAILED:
+            self._title_lbl.setStyleSheet(f"color: {COL.text_primary}; background: transparent;")
+            self._badge_lbl.setStyleSheet(f"color: {COL.error}; background: {COL.error}20; border-radius: 8px; padding: 1px 7px;")
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        r = self.CIR
+        tx = self.CIR + r + self.GAP
+        cy = self.height() / 2
+        self._title_lbl.setGeometry(tx, int(cy - 22), self.width() - tx - 8, 20)
+        self._badge_lbl.setGeometry(tx, int(cy + 2), self.width() - tx - 8, 20)
+        self._time_lbl.setGeometry(tx, int(cy + 24), self.width() - tx - 8, 16)
 
     def _pulse_tick(self) -> None:
-        self._pulse += 0.025
-        self._breath_phase += 0.03
-        self._glow_opacity = 0.35 + 0.3 * math.sin(self._pulse * 2 * math.pi / 100)
+        self._glow_phase += 0.05
         self.update()
-
-    def _get_ring(self) -> float:
-        return self._progress
-
-    def _set_ring(self, v: float) -> None:
-        self._progress = v
-        self.update()
-
-    ring_progress = Property(float, _get_ring, _set_ring)
 
     def _get_check(self) -> float:
-        return self._checkmark_progress
+        return self._check_progress
 
     def _set_check(self, v: float) -> None:
-        self._checkmark_progress = v
+        self._check_progress = v
         self.update()
 
-    checkmark_progress = Property(float, _get_check, _set_check)
+    check_progress = Property(float, _get_check, _set_check)
 
-    def _get_scale(self) -> float:
-        return self._scale
-
-    def _set_scale(self, v: float) -> None:
-        self._scale = v
-        self.update()
-
-    node_scale = Property(float, _get_scale, _set_scale)
-
-    def paintEvent(self, event) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        r = self.RADIUS * self._scale
-        cx = r + 8
-        cy = r + 2
-
-        p.save()
-        if self._shake_offset != 0.0:
-            p.translate(self._shake_offset, 0)
-
-        if self._state is _PremiumPipelineNode.State.ACTIVE:
-            breath = 0.5 + 0.5 * math.sin(self._breath_phase)
-            glow_r = r * (1.8 + breath * 0.6)
-            g = QRadialGradient(cx, cy, glow_r)
-            g.setColorAt(0.0, _tk_a(COL.accent, int(50 * self._glow_opacity * breath)))
-            g.setColorAt(0.5, _tk_a(COL.accent, int(15 * self._glow_opacity * breath)))
-            g.setColorAt(1.0, _tk_a(COL.accent, 0))
-            p.setBrush(QBrush(g))
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(QPointF(cx, cy), glow_r, glow_r)
+    def _draw_check(self, p: QPainter, cx: int, cy: int, d: float) -> None:
+        pen = QPen(_tk(COL.bg_active), 2)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        path = QPainterPath()
+        path.moveTo(cx - 4, cy)
+        path.lineTo(cx - 1, cy + 3)
+        path.lineTo(cx + 5, cy - 3)
+        if d < 1.0:
+            p.setOpacity(d)
+        p.drawPath(path)
+        if d < 1.0:
             p.setOpacity(1.0)
 
-        if self._state is _PremiumPipelineNode.State.WAITING:
-            p.setBrush(_tk(COL.bg_active))
-            p.setPen(QPen(_tk(COL.border), 1.5))
-        elif self._state is _PremiumPipelineNode.State.ACTIVE:
-            p.setBrush(_tk_a(COL.accent, 18))
-            p.setPen(QPen(_tk(COL.accent), 2.5))
-        elif self._state is _PremiumPipelineNode.State.COMPLETED:
-            p.setBrush(_tk_a(COL.success, 12))
-            p.setPen(QPen(_tk(COL.success), 2.5))
-            glow_g = QRadialGradient(cx, cy, r * 2.2)
-            glow_g.setColorAt(0.0, _tk_a(COL.success, 25))
-            glow_g.setColorAt(1.0, _tk_a(COL.success, 0))
-            p.setBrush(QBrush(glow_g))
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(QPointF(cx, cy), r * 2.2, r * 2.2)
-        elif self._state is _PremiumPipelineNode.State.FAILED:
-            p.setBrush(_tk_a(COL.error, 15))
-            p.setPen(QPen(_tk(COL.error), 2.5))
-
-        p.drawEllipse(QPointF(cx, cy), r, r)
-
-        if self._state is _PremiumPipelineNode.State.COMPLETED and self._progress > 0:
-            path = QPainterPath()
-            path.arcMoveTo(cx - r, cy - r, r * 2, r * 2, 90)
-            path.arcTo(cx - r, cy - r, r * 2, r * 2, 90, -360 * self._progress)
-            pen = QPen(_tk(COL.success), 2.5)
-            pen.setCapStyle(Qt.RoundCap)
-            p.setPen(pen)
-            p.setBrush(Qt.NoBrush)
-            p.drawPath(path)
-
-        inner_r = r - 4
-        if self._state is _PremiumPipelineNode.State.WAITING:
-            p.setBrush(_tk(COL.text_muted))
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(QPointF(cx, cy), 3, 3)
-        elif self._state is _PremiumPipelineNode.State.ACTIVE:
-            angle = (time.time() * 200) % 360
-            path = QPainterPath()
-            path.arcMoveTo(cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2, angle)
-            path.arcTo(cx - inner_r, cy - inner_r, inner_r * 2, inner_r * 2, angle, 270)
-            pen = QPen(_tk(COL.accent), 2.5)
-            pen.setCapStyle(Qt.RoundCap)
-            p.setPen(pen)
-            p.setBrush(Qt.NoBrush)
-            p.drawPath(path)
-        elif self._state is _PremiumPipelineNode.State.COMPLETED:
-            if self._checkmark_progress > 0:
-                pen = QPen(_tk(COL.success), 2.5)
-                pen.setCapStyle(Qt.RoundCap)
-                pen.setJoinStyle(Qt.RoundJoin)
-                p.setPen(pen)
-                p.setBrush(Qt.NoBrush)
-                path = QPainterPath()
-                path.moveTo(cx - 4, cy + 1)
-                path.lineTo(cx - 1, cy + 4)
-                path.lineTo(cx + 5, cy - 3)
-                if self._checkmark_progress < 1.0:
-                    p.setOpacity(self._checkmark_progress)
-                p.drawPath(path)
-                if self._checkmark_progress < 1.0:
-                    p.setOpacity(1.0)
-            else:
-                p.setBrush(_tk(COL.success))
-                p.setPen(Qt.NoPen)
-                p.drawEllipse(QPointF(cx, cy), 4, 4)
-        elif self._state is _PremiumPipelineNode.State.FAILED:
-            pen = QPen(_tk(COL.error), 2.5)
-            pen.setCapStyle(Qt.RoundCap)
-            p.setPen(pen)
-            p.drawLine(cx - 4, cy - 4, cx + 4, cy + 4)
-            p.drawLine(cx + 4, cy - 4, cx - 4, cy + 4)
-
-        p.restore()
-
-        name_color = _tk(COL.text_primary) if self._state is not _PremiumPipelineNode.State.WAITING else _tk(COL.text_muted)
-        p.setPen(name_color)
-        f = QFont()
-        f.setFamilies(["Inter", "Segoe UI", "sans-serif"])
-        f.setPointSize(10)
-        f.setWeight(QFont.Medium)
-        p.setFont(f)
-        text_x = cx + r + 14
-        p.drawText(int(text_x), cy + 4, self._name)
-
-        if self._state is _PremiumPipelineNode.State.ACTIVE:
-            self._indicator.move(int(text_x + p.fontMetrics().horizontalAdvance(self._name) + 8), cy - 5)
-            self._indicator.show()
-        else:
-            self._indicator.hide()
-
-        p.end()
-
-
-class _PremiumPipelineConnection(QWidget):
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self._fill_progress = 0.0
-        self._beam_progress = 0.0
-        self._beam_opacity = 0.0
-        self._beam_active = False
-        self._anim: QPropertyAnimation | None = None
-        self._beam_timer = QTimer(self)
-        self._beam_timer.setInterval(30)
-        self._beam_timer.timeout.connect(lambda: self.update())
-        self.setFixedWidth(36)
-
-    def set_fill(self, fraction: float) -> None:
-        self._fill_progress = max(0.0, min(1.0, fraction))
-        self.update()
-
-    def fire_beam(self, duration: int = ANIM_BEAM_TRAVEL) -> None:
-        if _reduced():
-            return
-        self._beam_active = True
-        self._beam_progress = 0.0
-        self._beam_opacity = 1.0
-        self._anim = QPropertyAnimation(self, b"beam_progress", self)
-        self._anim.setDuration(duration)
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.setEasingCurve(QEasingCurve.InOutCubic)
-        self._anim.finished.connect(self._beam_finished)
-        self._anim.start()
-        self._beam_timer.start()
-
-    def animate_liquid_fill(self, duration: int = ANIM_CONNECTOR_LIQUID) -> None:
-        if _reduced():
-            self._fill_progress = 1.0
-            self.update()
-            return
-        anim = QPropertyAnimation(self, b"connector_fill", self)
-        anim.setDuration(duration)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.start()
-
-    def _get_fill(self) -> float:
-        return self._fill_progress
-
-    def _set_fill(self, v: float) -> None:
-        self._fill_progress = v
-        self.update()
-
-    connector_fill = Property(float, _get_fill, _set_fill)
-
-    def _beam_finished(self) -> None:
-        self._beam_opacity = 0.0
-        self._beam_active = False
-        self._beam_timer.stop()
-        self.update()
-
-    def _get_beam(self) -> float:
-        return self._beam_progress
-
-    def _set_beam(self, v: float) -> None:
-        self._beam_progress = v
-        self.update()
-
-    beam_progress = Property(float, _get_beam, _set_beam)
-
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w = self.width()
         h = self.height()
-        cx = w / 2
+        if w < 1 or h < 1:
+            p.end()
+            return
+        cx = self.CIR
+        cy = h / 2
+        r = self.CIR
 
-        p.setPen(QPen(_tk_a(COL.border, 60), 1.5))
-        p.drawLine(round(cx), 0, round(cx), h)
+        conn_col = _tk(COL.border)
+        if self._state is _StepperNode.State.COMPLETED:
+            conn_col = _tk_a(COL.success, 120)
+        elif self._state is _StepperNode.State.ACTIVE:
+            conn_col = _tk_a(COL.accent, 80)
 
-        if self._fill_progress > 0:
-            fill_h = h * self._fill_progress
-            g = QLinearGradient(0, h, 0, 0)
-            g.setColorAt(0.0, _tk(COL.accent))
-            g.setColorAt(0.4, _tk_a(COL.gradient_end, 200))
-            g.setColorAt(1.0, _tk_a(COL.accent, 60))
-            p.setPen(QPen(QBrush(g), 2.5))
-            p.drawLine(round(cx), round(h - fill_h), round(cx), h)
+        p.setPen(QPen(conn_col, 2))
+        p.drawLine(cx, int(cy + r + 1), cx, h)
 
-            sweep = h * self._fill_progress
-            liquid = _sin(self._fill_progress * 3.0, speed=2.0) * 2
-            p.setPen(QPen(_tk_a(COL.accent, 25), 1))
-            points = 12
-            path = QPainterPath()
-            path.moveTo(cx - 2 - liquid, h - sweep)
-            for i in range(points + 1):
-                t = i / points
-                y = (h - sweep) + sweep * t
-                wavy = math.sin(t * math.pi * 4 + self._fill_progress * 2) * 1.5
-                path.lineTo(cx + wavy, y)
-            path.lineTo(cx + 2 + liquid, h - sweep)
+        if self._state is _StepperNode.State.WAITING:
             p.setBrush(Qt.NoBrush)
-            p.drawPath(path)
+            p.setPen(QPen(_tk_a(COL.text_muted, 80), 1.5))
+            p.drawEllipse(QPointF(cx, cy), r, r)
 
-        if self._beam_active and self._beam_opacity > 0:
-            beam_y = self._beam_progress * h
-            beam_h = 36
-            g = QLinearGradient(0, beam_y - beam_h / 2, 0, beam_y + beam_h / 2)
-            g.setColorAt(0.0, _tk_a(COL.accent, 0))
-            g.setColorAt(0.3, _tk_a(COL.accent, int(70 * self._beam_opacity)))
-            g.setColorAt(0.5, _tk_a("#A78BFA", int(120 * self._beam_opacity)))
-            g.setColorAt(0.7, _tk_a(COL.accent, int(70 * self._beam_opacity)))
+        elif self._state is _StepperNode.State.ACTIVE:
+            glow = 0.35 + 0.25 * math.sin(self._glow_phase)
+            g = QRadialGradient(cx, cy, r * 2.2)
+            g.setColorAt(0.0, _tk_a(COL.accent, int(50 * glow)))
             g.setColorAt(1.0, _tk_a(COL.accent, 0))
             p.setBrush(QBrush(g))
             p.setPen(Qt.NoPen)
-            br = 4
-            p.drawRoundedRect(round(cx - br), round(beam_y - beam_h / 2), br * 2, round(beam_h), br, br)
-            p.setPen(QPen(_tk_a("#A78BFA", int(180 * self._beam_opacity)), 2))
-            p.drawLine(round(cx), round(beam_y - 6), round(cx), round(beam_y + 6))
+            p.drawEllipse(QPointF(cx, cy), r * 2.2, r * 2.2)
+            p.setBrush(_tk(COL.accent))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(QPointF(cx, cy), r, r)
+            p.setPen(_tk_a(COL.bg_active, 200))
+            nf = QFont(["Inter", "Segoe UI", "sans-serif"], 11, QFont.Medium)
+            p.setFont(nf)
+            p.drawText(QRectF(cx - r, cy - r, r * 2, r * 2), Qt.AlignCenter, str(self._index + 1))
+
+        elif self._state is _StepperNode.State.COMPLETED:
+            p.setBrush(_tk(COL.success))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(QPointF(cx, cy), r, r)
+            if self._check_progress > 0:
+                self._draw_check(p, cx, cy, self._check_progress)
+            else:
+                p.setPen(Qt.NoPen)
+                p.setBrush(_tk(COL.bg_active))
+                p.drawEllipse(QPointF(cx, cy), 4, 4)
+
+        elif self._state is _StepperNode.State.FAILED:
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(_tk(COL.error), 2))
+            p.drawEllipse(QPointF(cx, cy), r, r)
+            pen = QPen(_tk(COL.error), 2)
+            pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
+            p.drawLine(cx - 5, cy - 5, cx + 5, cy + 5)
+            p.drawLine(cx + 5, cy - 5, cx - 5, cy + 5)
 
         p.end()
 
 
-class _PremiumProgressCapsule(QWidget):
+class _UiverseLoader(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._value = 0.0
-        self._target = 0.0
-        self._shimmer_pos = 0.0
-        self._particle_x = 0.0
-        self.setFixedHeight(24)
+        self._time = 0.0
+        self._running = False
+        self.setFixedHeight(40)
+        self.setMinimumWidth(200)
         if not _reduced():
-            self._shimmer_timer = QTimer(self)
-            self._shimmer_timer.setInterval(16)
-            self._shimmer_timer.timeout.connect(self._shimmer_tick)
-            self._shimmer_timer.start()
+            self._timer = QTimer(self)
+            self._timer.setInterval(16)
+            self._timer.timeout.connect(self._tick)
+            self._timer.start()
 
-    def _shimmer_tick(self) -> None:
-        self._shimmer_pos += 0.02
-        self.update()
+    def _tick(self) -> None:
+        if self._running:
+            self._time += 0.016
+            self.update()
+
+    def start(self) -> None:
+        self._running = True
+        self.show()
+
+    def stop(self) -> None:
+        self._running = False
+        self.hide()
 
     def set_value(self, fraction: float) -> None:
-        self._target = max(0.0, min(1.0, fraction))
-        if _reduced():
-            self._value = self._target
-            self.update()
-            return
-        anim = QPropertyAnimation(self, b"display_value", self)
-        anim.setDuration(500)
-        anim.setStartValue(self._value)
-        anim.setEndValue(self._target)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.start()
-
-    def _get_display(self) -> float:
-        return self._value
-
-    def _set_display(self, v: float) -> None:
-        self._value = v
-        self._particle_x = v
-        self.update()
-
-    display_value = Property(float, _get_display, _set_display)
+        self._running = fraction > 0 and fraction < 1.0
+        if self._running:
+            self.show()
+        else:
+            self.hide()
 
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.TextAntialiasing)
         w = self.width()
         h = self.height()
-        r = h / 2
 
-        p.setPen(Qt.NoPen)
-        p.setBrush(_tk(COL.bg_surface))
-        p.drawRoundedRect(0, 0, w, h, r, r)
-
-        fill_w = max(round(w * self._value), round(h))
-        if fill_w > 0:
-            g = QLinearGradient(0, 0, fill_w, 0)
-            g.setColorAt(0.0, _tk(COL.accent))
-            g.setColorAt(0.5, _tk_a(COL.gradient_end, 200))
-            g.setColorAt(1.0, _tk(COL.accent_hover))
-            p.setBrush(QBrush(g))
-            path = QPainterPath()
-            path.addRoundedRect(0, 0, fill_w, h, r, r)
-            p.drawPath(path)
-
-            sx = _sin(self._shimmer_pos * 2, speed=0.5) * fill_w * 0.6 + fill_w * 0.2
-            sg = QLinearGradient(sx - 20, 0, sx + 20, 0)
-            sg.setColorAt(0.0, _tk_a("#FFFFFF", 0))
-            sg.setColorAt(0.5, _tk_a("#FFFFFF", 35))
-            sg.setColorAt(1.0, _tk_a("#FFFFFF", 0))
-            p.setBrush(QBrush(sg))
-            p.drawPath(path)
-
-            px = fill_w
-            py = h / 2
-            pg = QRadialGradient(px, py, 14)
-            pg.setColorAt(0.0, _tk_a(COL.accent, 90))
-            pg.setColorAt(0.5, _tk_a(COL.accent, 30))
-            pg.setColorAt(1.0, _tk_a(COL.accent, 0))
-            p.setBrush(QBrush(pg))
-            p.drawEllipse(QPointF(px, py), 14, 14)
-
-            p.setBrush(_tk_a("#FFFFFF", 180))
-            p.drawEllipse(QPointF(px, py), 3, 3)
-
-        p.setPen(QPen(_tk_a(COL.border, 100), 1))
-        p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(0, 0, w - 1, h - 1, r, r)
-
-        p.setPen(_tk_a(COL.text_primary, 120))
+        text_str = "Loading"
+        t = self._time * 0.5
         f = QFont()
         f.setFamilies(["Inter", "Segoe UI", "sans-serif"])
-        f.setPointSize(8)
+        f.setPointSize(16)
         f.setWeight(QFont.DemiBold)
         p.setFont(f)
+        fm = p.fontMetrics()
+        tw = fm.horizontalAdvance(text_str)
+        scroll_x = -tw + ((t * (tw + w)) % (tw + w))
+        ty = int(h / 2 + fm.ascent() / 2 - 2)
+        gx = scroll_x + tw * ((t * 2) % 1.0)
+        g = QLinearGradient(gx - tw * 0.3, 0, gx + tw * 0.3, 0)
+        g.setColorAt(0.0, QColor(255, 255, 255, 40))
+        g.setColorAt(0.35, QColor(255, 255, 255, 255))
+        g.setColorAt(0.65, QColor(255, 255, 255, 255))
+        g.setColorAt(1.0, QColor(255, 255, 255, 40))
+        p.setPen(QPen(QBrush(g), 0))
+        p.drawText(int(scroll_x + 10), ty, text_str)
+
+        bar_w = min(130, w - 20)
+        bar_x = (w - bar_w) / 2
+        bar_y = h - 10
+        bar_h = 4
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 25))
+        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 2, 2)
+        bar_progress = math.sin(t * math.pi * 2) ** 2
+        fill_w = bar_w * bar_progress
+        p.setBrush(_tk(COL.accent))
+        p.drawRoundedRect(QRectF(bar_x, bar_y, fill_w, bar_h), 2, 2)
+
         p.end()
 
 
-class _CinemaButton(QPushButton):
+STAR_POINTS = [
+    (1.0, 0.5), (0.9148, 0.5657), (0.9755, 0.6545), (0.8742, 0.6907),
+    (0.9045, 0.7939), (0.797, 0.797), (0.7939, 0.9045), (0.6907, 0.8742),
+    (0.6545, 0.9755), (0.5657, 0.9148), (0.5, 1.0), (0.4343, 0.9148),
+    (0.3455, 0.9755), (0.3093, 0.8742), (0.2061, 0.9045), (0.203, 0.797),
+    (0.0955, 0.7939), (0.1258, 0.6907), (0.0245, 0.6545), (0.0852, 0.5657),
+    (0.0, 0.5), (0.0852, 0.4343), (0.0245, 0.3455), (0.1258, 0.3093),
+    (0.0955, 0.2061), (0.203, 0.203), (0.2061, 0.0955), (0.3093, 0.1258),
+    (0.3455, 0.0245), (0.4343, 0.0852), (0.5, 0.0), (0.5657, 0.0852),
+    (0.6545, 0.0245), (0.6907, 0.1258), (0.7939, 0.0955), (0.797, 0.203),
+    (0.9045, 0.2061), (0.8742, 0.3093), (0.9755, 0.3455), (0.9148, 0.4343),
+]
+
+
+class _PillButton(QPushButton):
     def __init__(self, text: str = "", parent=None) -> None:
         super().__init__(text, parent)
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(40)
-        self._hover = 0.0
-        self._press = 0.0
-        self._is_hovered = False
-        self._is_pressed = False
-        self._bg_color = None
-        self._text_color = None
-        self._border_color = None
-        self._hover_brightness = 1.0
+        self.setMinimumHeight(44)
+        self.setMinimumWidth(80)
+        self._hovered = False
+        self._pressed = False
+        self._offset = 4.0
+        self._star_angle = 0.0
+        self._star_visible = False
+        self._dot_phase = 0.0
+        self._accent = _tk(COL.accent)
+        self._bg_color = _tk(COL.accent)
+        self._txt_color = QColor("#FFFFFF")
 
-        self._shadow = QGraphicsDropShadowEffect(self)
-        self._shadow.setBlurRadius(12)
-        self._shadow.setOffset(0, 2)
-        self._shadow.setColor(_tk_a("#000000", 30))
-        self.setGraphicsEffect(self._shadow)
+        self._off_anim = QPropertyAnimation(self, b"pill_offset", self)
+        self._off_anim.setDuration(200)
+        self._off_anim.setEasingCurve(QEasingCurve.OutCubic)
 
-        self._hover_anim = QPropertyAnimation(self, b"hover_amount", self)
-        self._hover_anim.setDuration(ANIM_BUTTON_HOVER)
-        self._hover_anim.setEasingCurve(QEasingCurve.OutCubic)
-
-        self._press_anim = QPropertyAnimation(self, b"press_amount", self)
-        self._press_anim.setDuration(ANIM_BUTTON_PRESS)
-        self._press_anim.setEasingCurve(QEasingCurve.OutBack)
+        self._star_timer = QTimer(self)
+        self._star_timer.setInterval(16)
+        self._star_timer.timeout.connect(self._star_tick)
 
         self.setMouseTracking(True)
-        self.setAttribute(Qt.WA_Hover, True)
 
-    def configure(self, bg: str, text: str, border: str, hover_brightness: float = 1.15) -> None:
+    def configure(self, bg: str, text: str, border: str = "", hover_brightness: float = 1.15) -> None:
         self._bg_color = _tk(bg)
-        self._text_color = _tk(text)
-        self._border_color = _tk(border)
-        self._hover_brightness = hover_brightness
+        self._txt_color = _tk(text)
+        if border:
+            self._accent = _tk(border)
 
-    def _get_hover(self) -> float:
-        return self._hover
+    def _get_off(self) -> float:
+        return self._offset
 
-    def _set_hover(self, v: float) -> None:
-        self._hover = v
+    def _set_off(self, v: float) -> None:
+        self._offset = v
         self.update()
 
-    hover_amount = Property(float, _get_hover, _set_hover)
-
-    def _get_press(self) -> float:
-        return self._press
-
-    def _set_press(self, v: float) -> None:
-        self._press = v
-        self.update()
-
-    press_amount = Property(float, _get_press, _set_press)
+    pill_offset = Property(float, _get_off, _set_off)
 
     def enterEvent(self, event: QEnterEvent) -> None:
         super().enterEvent(event)
         if not _reduced():
-            self._is_hovered = True
-            self._hover_anim.stop()
-            self._hover_anim.setStartValue(self._hover)
-            self._hover_anim.setEndValue(1.0)
-            self._hover_anim.start()
+            self._hovered = True
+            self._star_visible = True
+            self._star_timer.start()
+            self._off_anim.stop()
+            self._off_anim.setStartValue(self._offset)
+            self._off_anim.setEndValue(0.0)
+            self._off_anim.start()
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
         if not _reduced():
-            self._is_hovered = False
-            self._hover_anim.stop()
-            self._hover_anim.setStartValue(self._hover)
-            self._hover_anim.setEndValue(0.0)
-            self._hover_anim.start()
+            self._hovered = False
+            self._off_anim.stop()
+            self._off_anim.setStartValue(self._offset)
+            self._off_anim.setEndValue(4.0)
+            self._off_anim.start()
+            if not self._star_visible:
+                self._star_timer.stop()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         super().mousePressEvent(event)
-        if not _reduced() and event.button() == Qt.LeftButton:
-            self._press_anim.stop()
-            self._press_anim.setStartValue(0.0)
-            self._press_anim.setEndValue(1.0)
-            self._press_anim.start()
+        if event.button() == Qt.LeftButton:
+            self._pressed = True
+            self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         super().mouseReleaseEvent(event)
-        if not _reduced():
-            self._press_anim.stop()
-            self._press_anim.setStartValue(self._press)
-            self._press_anim.setEndValue(0.0)
-            self._press_anim.start()
+        self._pressed = False
+        self.update()
+
+    def _star_tick(self) -> None:
+        self._star_angle = (self._star_angle + 2) % 360
+        self._dot_phase += 0.05
+        self.update()
+
+    def _build_star_path(self, w: int, h: int) -> QPainterPath:
+        path = QPainterPath()
+        if not STAR_POINTS:
+            return path
+        sx, sy = w * STAR_POINTS[0][0], h * STAR_POINTS[0][1]
+        path.moveTo(sx, sy)
+        for px, py in STAR_POINTS[1:]:
+            path.lineTo(w * px, h * py)
+        path.closeSubpath()
+        return path
 
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        r = 10
+        rr = 16
 
-        lift = self._hover * 2
-        press_scale = 1.0 - self._press * 0.04
-        shadow_alpha = int(30 + self._hover * 30)
+        off = self._offset
+        star_alpha = int(25 + 230 * (1.0 - off / 4.0)) if self._hovered else 0
 
-        self._shadow.setBlurRadius(12 + self._hover * 8)
-        self._shadow.setOffset(0, 2 + lift)
-        self._shadow.setColor(_tk_a("#000000", shadow_alpha))
+        if self._hovered and star_alpha > 0:
+            p.save()
+            p.translate(w / 2, h / 2)
+            p.rotate(self._star_angle)
+            p.translate(-w / 2, -h / 2)
+            p.setBrush(Qt.NoBrush)
+            c = QColor(self._accent)
+            c.setAlpha(star_alpha)
+            pen = QPen(c, 1)
+            p.setPen(pen)
+            star_path = self._build_star_path(w, h)
+            p.drawPath(star_path)
+            p.restore()
 
-        bg = self._bg_color if self._bg_color else _tk(COL.bg_card)
-        txt = self._text_color if self._text_color else _tk(COL.text_primary)
-        brd = self._border_color if self._border_color else _tk(COL.border)
+        shadow_col = QColor(self._accent)
+        shadow_col.setAlpha(80)
+        p.setPen(Qt.NoPen)
+        for i in range(4, -1, -1):
+            s = off * 0.8 * (i / 4.0)
+            c = QColor(shadow_col)
+            c.setAlpha(int(60 * (1.0 - i / 5.0)))
+            p.setBrush(c)
+            p.drawRoundedRect(QRectF(-s + i, -s + i, w - i * 2, h - i * 2), rr, rr)
 
-        if self._hover > 0 and self._bg_color:
-            hr, hg, hb, _ = bg.getRgb()
-            factor = 1.0 + self._hover * (self._hover_brightness - 1.0)
-            bg = QColor(
-                min(255, int(hr * factor)),
-                min(255, int(hg * factor)),
-                min(255, int(hb * factor)),
-            )
+        btn_col = QColor(self._bg_color)
+        if self._hovered:
+            h_factor = 1.15
+            hr, hg, hb, _ = btn_col.getRgb()
+            btn_col = QColor(min(255, int(hr * h_factor)), min(255, int(hg * h_factor)), min(255, int(hb * h_factor)))
+        p.setBrush(btn_col)
+        p.setPen(Qt.NoPen)
+        p.drawRoundedRect(QRectF(0, 0, w - 1, h - 1), rr, rr)
 
-        if not self.isEnabled():
-            bg = _tk(COL.bg_surface)
-            txt = _tk(COL.text_muted)
+        if self._hovered:
+            p.save()
+            p.setClipRect(QRectF(0, 0, w - 1, h - 1))
+            dot_col = QColor(255, 255, 255, 30)
+            for dx in range(0, w, 8):
+                for dy in range(0, h, 8):
+                    ox = (self._dot_phase * 8) % 8
+                    p.setBrush(dot_col)
+                    p.setPen(Qt.NoPen)
+                    p.drawEllipse(QPointF(dx + ox, dy), 1.5, 1.5)
+            p.restore()
 
-        p.save()
-        p.translate(w / 2, h / 2)
-        p.scale(press_scale, press_scale)
-        p.translate(-w / 2, -h / 2)
-
-        p.setPen(QPen(brd, 1))
-        p.setBrush(bg)
-        p.drawRoundedRect(0, 0, w - 1, h - 1, r, r)
-
-        p.setPen(txt)
+        p.setPen(self._txt_color)
         f = QFont()
         f.setFamilies(["Inter", "Segoe UI", "sans-serif"])
-        f.setPointSize(10)
+        f.setPointSize(11)
         f.setWeight(QFont.DemiBold)
         p.setFont(f)
-        p.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, self.text())
-        p.restore()
+        icon_area = 20
+        txt_rect = QRectF(icon_area, 0, w - icon_area * 2, h)
+        p.drawText(txt_rect, Qt.AlignCenter, self.text())
 
-        if self._press > 0:
-            p.save()
+        if self._pressed:
+            p.setBrush(QColor(0, 0, 0, 30))
             p.setPen(Qt.NoPen)
-            p.setBrush(_tk_a(COL.accent, int(15 * self._press)))
-            p.drawRoundedRect(0, 0, w - 1, h - 1, r, r)
-            p.restore()
+            p.drawRoundedRect(QRectF(0, 0, w - 1, h - 1), rr, rr)
 
         p.end()
 
@@ -1526,10 +1419,6 @@ class ProcessingPage(QWidget):
         self._stage_map = _StageLabelMap()
         self._all_paths: List[str] = []
         self._current_idx: int = 0
-        self._status_cycle_index = 0
-        self._status_timer = QTimer(self)
-        self._status_timer.setInterval(800)
-        self._status_timer.timeout.connect(self._cycle_status)
 
         self._bg = _FloatingBg(self)
 
@@ -1607,8 +1496,7 @@ class ProcessingPage(QWidget):
 
         pipe_lay.addSpacing(SP.xs)
 
-        self._nodes: List[_PremiumPipelineNode] = []
-        self._connections: List[_PremiumPipelineConnection] = []
+        self._nodes: List[_StepperNode] = []
         pipeline_widget = QWidget()
         pipeline_widget.setStyleSheet("background: transparent;")
         pipeline_lay = QVBoxLayout(pipeline_widget)
@@ -1616,45 +1504,26 @@ class ProcessingPage(QWidget):
         pipeline_lay.setSpacing(0)
 
         for i, name in enumerate(STAGE_NAMES):
-            node = _PremiumPipelineNode(i, name)
+            node = _StepperNode(i, name)
             self._nodes.append(node)
             row = QHBoxLayout()
             row.setSpacing(0)
             row.addWidget(node)
             row.addStretch(1)
             pipeline_lay.addLayout(row)
-            if i < len(STAGE_NAMES) - 1:
-                conn = _PremiumPipelineConnection()
-                self._connections.append(conn)
-                row_c = QHBoxLayout()
-                row_c.setSpacing(0)
-                row_c.addWidget(conn)
-                row_c.addStretch(1)
-                pipeline_lay.addLayout(row_c)
 
         pipe_lay.addWidget(pipeline_widget)
         left_lay.addWidget(pipe_section)
 
-        left_lay.addSpacing(SP.sm)
-
-        desc_section = QWidget()
-        desc_section.setStyleSheet("background: transparent;")
-        desc_lay = QHBoxLayout(desc_section)
-        desc_lay.setContentsMargins(SP.xs, 0, SP.xs, 0)
-        desc_lay.setSpacing(SP.sm)
-
-        ai_indicator = _RotatingIndicator()
-        desc_lay.addWidget(ai_indicator)
+        left_lay.addSpacing(SP.md)
 
         self._desc_label = QLabel("")
         self._desc_label.setWordWrap(True)
         self._desc_label.setStyleSheet(
             f"color: {COL.accent}; font-size: {TYP.size_sm}px; "
-            f"background: transparent;"
+            f"background: transparent; padding-left: 4px;"
         )
-        desc_lay.addWidget(self._desc_label)
-        desc_lay.addStretch(1)
-        left_lay.addWidget(desc_section)
+        left_lay.addWidget(self._desc_label)
 
         left_lay.addSpacing(SP.lg)
 
@@ -1691,7 +1560,7 @@ class ProcessingPage(QWidget):
 
         progress_lay.addSpacing(SP.xs)
 
-        self._bar = _PremiumProgressCapsule()
+        self._bar = _UiverseLoader()
         self._bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         progress_lay.addWidget(self._bar)
 
@@ -1746,18 +1615,15 @@ class ProcessingPage(QWidget):
         controls = QHBoxLayout()
         controls.setSpacing(SP.sm)
 
-        self._btn_pause = _CinemaButton("  Pause")
-        self._btn_pause.setIcon(icon("pause", 16, color="#FFFFFF"))
-        self._btn_pause.configure(bg=COL.accent, text="#FFFFFF", border=COL.accent_hover, hover_brightness=1.2)
+        self._btn_pause = _PillButton("Pause")
+        self._btn_pause.configure(bg=COL.accent, text="#FFFFFF", border=COL.accent_hover)
         self._btn_pause.clicked.connect(self._toggle_pause)
-        self._btn_resume = _CinemaButton("  Resume")
-        self._btn_resume.setIcon(icon("play", 16, color="#FFFFFF"))
-        self._btn_resume.configure(bg=COL.success, text="#FFFFFF", border=COL.success, hover_brightness=1.2)
+        self._btn_resume = _PillButton("Resume")
+        self._btn_resume.configure(bg=COL.success, text="#FFFFFF", border=COL.success)
         self._btn_resume.clicked.connect(self._toggle_pause)
         self._btn_resume.hide()
-        self._btn_cancel = _CinemaButton("  Cancel")
-        self._btn_cancel.setIcon(icon("close", 16, color="#F87171"))
-        self._btn_cancel.configure(bg=COL.bg_surface, text=COL.error, border=COL.border, hover_brightness=1.15)
+        self._btn_cancel = _PillButton("Cancel")
+        self._btn_cancel.configure(bg=COL.bg_surface, text=COL.error, border=COL.border)
         self._btn_cancel.clicked.connect(self.cancel_requested.emit)
 
         controls.addWidget(self._btn_pause)
@@ -1790,7 +1656,6 @@ class ProcessingPage(QWidget):
         self._stage_map = _StageLabelMap()
         self._all_paths = list(paths) if paths else []
         self._current_idx = 0
-        self._status_cycle_index = 0
 
         self._subtitle.setText(f"Batch of {self._total} image{'s' if self._total != 1 else ''}")
         self._desc_label.setText("Preparing...")
@@ -1808,23 +1673,18 @@ class ProcessingPage(QWidget):
         self._preview.update()
 
         for node in self._nodes:
-            node.set_state(_PremiumPipelineNode.State.WAITING, animate=False)
-        for conn in self._connections:
-            conn.set_fill(0.0)
+            node.set_state(_StepperNode.State.WAITING, animate=False)
 
         self._set_paused(False)
         self._enable_controls(True)
         self._timer.start()
-        self._status_timer.start()
 
     def end(self) -> None:
         self._timer.stop()
-        self._status_timer.stop()
         self._enable_controls(False)
 
     def reset(self) -> None:
         self._timer.stop()
-        self._status_timer.stop()
         self._t0 = 0.0
         self._done = self._failed = self._total = 0
         self._completed = False
@@ -1834,11 +1694,8 @@ class ProcessingPage(QWidget):
         self._stage_map = _StageLabelMap()
         self._all_paths = []
         self._current_idx = 0
-        self._status_cycle_index = 0
         for node in self._nodes:
-            node.set_state(_PremiumPipelineNode.State.WAITING, animate=False)
-        for conn in self._connections:
-            conn.set_fill(0.0)
+            node.set_state(_StepperNode.State.WAITING, animate=False)
         self._bar.set_value(0.0)
         self._perc_label.setText("0%")
         self._stage_status.setText("Idle")
@@ -1861,13 +1718,13 @@ class ProcessingPage(QWidget):
         if idx > self._stage_index:
             self._advance_stages(idx)
 
-        if idx < len(self._nodes) and self._nodes[idx].state is _PremiumPipelineNode.State.WAITING:
-            self._nodes[idx].set_state(_PremiumPipelineNode.State.ACTIVE)
+        if idx < len(self._nodes) and self._nodes[idx].state is _StepperNode.State.WAITING:
+            self._nodes[idx].set_state(_StepperNode.State.ACTIVE)
+            self._nodes[idx].set_status("Processing...")
 
         if idx < len(STAGE_NAMES):
             self._stage_status.setText(STAGE_NAMES[idx])
             self._desc_label.setText(_STAGE_DESCRIPTIONS[idx])
-            self._status_cycle_index = 0
             self._preview.show_processing_overlay(
                 STAGE_NAMES[idx],
                 round((idx + 1) / len(STAGE_NAMES) * 100),
@@ -1878,17 +1735,20 @@ class ProcessingPage(QWidget):
         start = max(0, self._stage_index)
         for pi in range(start, new_idx):
             if pi < len(self._nodes):
-                self._nodes[pi].set_state(_PremiumPipelineNode.State.COMPLETED)
-            if pi < len(self._connections):
-                self._connections[pi].fire_beam()
-                QTimer.singleShot(ANIM_BEAM_TRAVEL, lambda p=pi: self._connections[p].animate_liquid_fill())
+                self._nodes[pi].set_state(_StepperNode.State.COMPLETED)
+                eta = self._eta_label.text().replace("ETA ", "").strip()
+                if eta and eta != "--:--":
+                    self._nodes[pi].set_time(f"Completed in {eta}")
         self._stage_index = new_idx
 
     def _mark_all_completed(self) -> None:
         i = 0
         for node in self._nodes:
             animate = i == self._stage_index and self._stage_index >= 0
-            node.set_state(_PremiumPipelineNode.State.COMPLETED, animate=animate)
+            node.set_state(_StepperNode.State.COMPLETED, animate=animate)
+            eta = self._eta_label.text().replace("ETA ", "").strip()
+            if eta and eta != "--:--":
+                node.set_time(f"Completed in {eta}")
             i += 1
 
     def _start_completion_animation(self) -> None:
@@ -1898,14 +1758,6 @@ class ProcessingPage(QWidget):
 
     def _on_completion_done(self) -> None:
         self._stage_status.setText("All images processed")
-
-    def _cycle_status(self) -> None:
-        if self._completed:
-            return
-        self._status_cycle_index = (self._status_cycle_index + 1) % len(_CYCLE_STATUSES)
-        if self._stage_index >= 0 and self._stage_index < len(STAGE_NAMES):
-            base = STAGE_NAMES[self._stage_index]
-            self._desc_label.setText(f"{base} \u2014 {_CYCLE_STATUSES[self._status_cycle_index]}")
 
     def on_status(self, file_name: str) -> None:
         if not file_name:
@@ -1974,7 +1826,7 @@ class ProcessingPage(QWidget):
         self._failed += 1
         idx = self._stage_index if self._stage_index >= 0 else 0
         if idx < len(self._nodes):
-            self._nodes[idx].set_state(_PremiumPipelineNode.State.FAILED)
+            self._nodes[idx].set_state(_StepperNode.State.FAILED)
         fails = []
         if self._failed_list.text():
             fails = self._failed_list.text().split("\n")
@@ -2033,10 +1885,8 @@ class ProcessingPage(QWidget):
         self._btn_resume.setVisible(paused)
         if paused:
             self._timer.stop()
-            self._status_timer.stop()
         else:
             self._timer.start()
-            self._status_timer.start()
 
     def _tick(self) -> None:
         self._recalc_eta()

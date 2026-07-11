@@ -16,7 +16,7 @@ from PySide6.QtGui import (
 from PySide6.QtSvg import QSvgRenderer
 
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
+    QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
     QVBoxLayout, QWidget,
 )
@@ -28,6 +28,7 @@ from backend.job import (
 from components.cards import DropZone
 from components.carousel import CoverFlowCarousel
 from components.icons import pixmap
+from components.toggle import NeumorphicToggle
 
 
 _COLOR_ACTIVE = "#7C5CFF"
@@ -476,12 +477,7 @@ class _RemoveBgSettings(_PipelineCardSettings):
         row3.addWidget(self._feather, 1)
         lay.addLayout(row3)
 
-        self._shadow_removal = QCheckBox("Shadow Removal")
-        self._shadow_removal.setStyleSheet(
-            f"QCheckBox {{ color: {_COLOR_TEXT_SECONDARY}; font-size: 10px; spacing: 6px; }}"
-            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #262A37; }"
-            "QCheckBox::indicator:checked { background-color: #7C5CFF; border-color: #7C5CFF; }"
-        )
+        self._shadow_removal = NeumorphicToggle("Shadow Removal")
         lay.addWidget(self._shadow_removal)
 
 
@@ -510,18 +506,10 @@ class _UpscaleSettings(_PipelineCardSettings):
             scale_row.addWidget(btn)
         lay.addLayout(scale_row)
 
-        self._sharpen = QCheckBox("Sharpen")
-        self._sharpen.setChecked(True)
-        self._sharpen.setStyleSheet(
-            f"QCheckBox {{ color: {_COLOR_TEXT_SECONDARY}; font-size: 10px; spacing: 6px; }}"
-            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #262A37; }"
-            "QCheckBox::indicator:checked { background-color: #7C5CFF; border-color: #7C5CFF; }"
-        )
+        self._sharpen = NeumorphicToggle("Sharpen", checked=True)
         lay.addWidget(self._sharpen)
 
-        self._denoise = QCheckBox("Denoise")
-        self._denoise.setChecked(True)
-        self._denoise.setStyleSheet(self._sharpen.styleSheet())
+        self._denoise = NeumorphicToggle("Denoise", checked=True)
         lay.addWidget(self._denoise)
 
     def _scale_style(self, active: bool) -> str:
@@ -577,13 +565,7 @@ class _ResizeSettings(_PipelineCardSettings):
         row_h.addWidget(self._height, 1)
         lay.addLayout(row_h)
 
-        self._lock = QCheckBox("Lock Aspect Ratio")
-        self._lock.setChecked(True)
-        self._lock.setStyleSheet(
-            f"QCheckBox {{ color: {_COLOR_TEXT_SECONDARY}; font-size: 10px; spacing: 6px; }}"
-            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #262A37; }"
-            "QCheckBox::indicator:checked { background-color: #7C5CFF; border-color: #7C5CFF; }"
-        )
+        self._lock = NeumorphicToggle("Lock Aspect Ratio", checked=True)
         lay.addWidget(self._lock)
 
         fit_lbl = QLabel("Fit Mode")
@@ -633,13 +615,7 @@ class _OutputSettings(_PipelineCardSettings):
         row_c.addWidget(self._compression, 1)
         lay.addLayout(row_c)
 
-        self._transparent = QCheckBox("Transparent Background")
-        self._transparent.setChecked(True)
-        self._transparent.setStyleSheet(
-            f"QCheckBox {{ color: {_COLOR_TEXT_SECONDARY}; font-size: 10px; spacing: 6px; }}"
-            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #262A37; }"
-            "QCheckBox::indicator:checked { background-color: #7C5CFF; border-color: #7C5CFF; }"
-        )
+        self._transparent = NeumorphicToggle("Transparent Background", checked=True)
         lay.addWidget(self._transparent)
 
 
@@ -754,13 +730,7 @@ class _OutputSettingsBar(QWidget):
         )
         lay.addWidget(self._naming_suffix)
 
-        self._open_after = QCheckBox("Open After")
-        self._open_after.setChecked(True)
-        self._open_after.setStyleSheet(
-            f"QCheckBox {{ color: {_COLOR_TEXT_SECONDARY}; font-size: 10px; spacing: 6px; }}"
-            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #262A37; }"
-            "QCheckBox::indicator:checked { background-color: #7C5CFF; border-color: #7C5CFF; }"
-        )
+        self._open_after = NeumorphicToggle("Open After", checked=True)
         lay.addWidget(self._open_after)
 
 
