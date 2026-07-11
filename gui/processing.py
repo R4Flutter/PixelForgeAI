@@ -877,82 +877,54 @@ class _UiverseLoader(QWidget):
         p.end()
 
 
-STAR_POINTS = [
-    (1.0, 0.5), (0.9148, 0.5657), (0.9755, 0.6545), (0.8742, 0.6907),
-    (0.9045, 0.7939), (0.797, 0.797), (0.7939, 0.9045), (0.6907, 0.8742),
-    (0.6545, 0.9755), (0.5657, 0.9148), (0.5, 1.0), (0.4343, 0.9148),
-    (0.3455, 0.9755), (0.3093, 0.8742), (0.2061, 0.9045), (0.203, 0.797),
-    (0.0955, 0.7939), (0.1258, 0.6907), (0.0245, 0.6545), (0.0852, 0.5657),
-    (0.0, 0.5), (0.0852, 0.4343), (0.0245, 0.3455), (0.1258, 0.3093),
-    (0.0955, 0.2061), (0.203, 0.203), (0.2061, 0.0955), (0.3093, 0.1258),
-    (0.3455, 0.0245), (0.4343, 0.0852), (0.5, 0.0), (0.5657, 0.0852),
-    (0.6545, 0.0245), (0.6907, 0.1258), (0.7939, 0.0955), (0.797, 0.203),
-    (0.9045, 0.2061), (0.8742, 0.3093), (0.9755, 0.3455), (0.9148, 0.4343),
-]
-
-
 class _PillButton(QPushButton):
-    def __init__(self, text: str = "", parent=None) -> None:
+    def __init__(self, text: str = "", icon_char: str = "", style: str = "primary", parent=None) -> None:
         super().__init__(text, parent)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(44)
-        self.setMinimumWidth(80)
-        self._hovered = False
+        self._icon_char = icon_char
+        self._style = style
         self._pressed = False
-        self._offset = 4.0
-        self._star_angle = 0.0
-        self._star_visible = False
-        self._dot_phase = 0.0
-        self._accent = _tk(COL.accent)
-        self._bg_color = _tk(COL.accent)
-        self._txt_color = QColor("#FFFFFF")
-
-        self._off_anim = QPropertyAnimation(self, b"pill_offset", self)
-        self._off_anim.setDuration(200)
-        self._off_anim.setEasingCurve(QEasingCurve.OutCubic)
-
-        self._star_timer = QTimer(self)
-        self._star_timer.setInterval(16)
-        self._star_timer.timeout.connect(self._star_tick)
-
+        self._hovered = False
+        self._hover_progress = 0.0
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(44)
+        self.setMinimumWidth(100)
         self.setMouseTracking(True)
 
-    def configure(self, bg: str, text: str, border: str = "", hover_brightness: float = 1.15) -> None:
-        self._bg_color = _tk(bg)
-        self._txt_color = _tk(text)
-        if border:
-            self._accent = _tk(border)
-
-    def _get_off(self) -> float:
-        return self._offset
-
-    def _set_off(self, v: float) -> None:
-        self._offset = v
-        self.update()
-
-    pill_offset = Property(float, _get_off, _set_off)
+    def configure(self, bg: str = "", text: str = "", border: str = "", hover_brightness: float = 1.15) -> None:
+        pass
 
     def enterEvent(self, event: QEnterEvent) -> None:
         super().enterEvent(event)
-        if not _reduced():
-            self._hovered = True
-            self._star_visible = True
-            self._star_timer.start()
-            self._off_anim.stop()
-            self._off_anim.setStartValue(self._offset)
-            self._off_anim.setEndValue(0.0)
-            self._off_anim.start()
+        self._hovered = True
+        if self._style == "cancel":
+            self._anim_hover(1.0)
+        else:
+            self.update()
 
     def leaveEvent(self, event) -> None:
         super().leaveEvent(event)
-        if not _reduced():
-            self._hovered = False
-            self._off_anim.stop()
-            self._off_anim.setStartValue(self._offset)
-            self._off_anim.setEndValue(4.0)
-            self._off_anim.start()
-            if not self._star_visible:
-                self._star_timer.stop()
+        self._hovered = False
+        if self._style == "cancel":
+            self._anim_hover(0.0)
+        else:
+            self.update()
+
+    def _anim_hover(self, target: float) -> None:
+        self._ha = QPropertyAnimation(self, b"hover_progress", self)
+        self._ha.setDuration(250)
+        self._ha.setEasingCurve(QEasingCurve.OutCubic)
+        self._ha.setStartValue(self._hover_progress)
+        self._ha.setEndValue(target)
+        self._ha.start()
+
+    def _get_hp(self) -> float:
+        return self._hover_progress
+
+    def _set_hp(self, v: float) -> None:
+        self._hover_progress = v
+        self.update()
+
+    hover_progress = Property(float, _get_hp, _set_hp)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         super().mousePressEvent(event)
@@ -965,91 +937,56 @@ class _PillButton(QPushButton):
         self._pressed = False
         self.update()
 
-    def _star_tick(self) -> None:
-        self._star_angle = (self._star_angle + 2) % 360
-        self._dot_phase += 0.05
-        self.update()
-
-    def _build_star_path(self, w: int, h: int) -> QPainterPath:
-        path = QPainterPath()
-        if not STAR_POINTS:
-            return path
-        sx, sy = w * STAR_POINTS[0][0], h * STAR_POINTS[0][1]
-        path.moveTo(sx, sy)
-        for px, py in STAR_POINTS[1:]:
-            path.lineTo(w * px, h * py)
-        path.closeSubpath()
-        return path
-
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         w, h = self.width(), self.height()
-        rr = 16
+        rr = h / 2
 
-        off = self._offset
-        star_alpha = int(25 + 230 * (1.0 - off / 4.0)) if self._hovered else 0
+        if self._style == "cancel":
+            red = QColor(252, 70, 100)
+            clip = QRectF(0, 0, w * self._hover_progress, h)
+            p.setClipRect(clip)
+            p.setBrush(red)
+            p.setPen(Qt.NoPen)
+            p.drawRoundedRect(QRectF(0, 0, w, h), rr, rr)
+            p.setClipping(False)
+            p.setPen(QPen(red, 3))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(QRectF(1.5, 1.5, w - 3, h - 3), rr, rr)
+            p.setPen(QColor("#FFFFFF"))
+            f = QFont(["Inter", "Segoe UI", "sans-serif"], 13, QFont.Bold)
+            p.setFont(f)
+            p.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, self.text())
+        else:
+            g = QLinearGradient(0, 0, w, 0)
+            g.setColorAt(0.0, QColor(77, 54, 208))
+            g.setColorAt(1.0, QColor(132, 116, 254))
+            p.setBrush(QBrush(g))
+            if self._hovered:
+                p.setPen(QPen(QColor("#f4f5f2"), 1.5))
+            else:
+                p.setPen(Qt.NoPen)
+            p.drawRoundedRect(QRectF(0, 0, w, h), rr, rr)
 
-        if self._hovered and star_alpha > 0:
+            for i in range(3):
+                a = int(30 - i * 8)
+                c = QColor(77, 54, 208, a)
+                p.setPen(QPen(c, 0))
+                p.drawRoundedRect(QRectF(-i, -i, w + i * 2, h + i * 2), rr, rr)
+
+            sc = 0.98 if self._pressed else 1.0
             p.save()
             p.translate(w / 2, h / 2)
-            p.rotate(self._star_angle)
+            p.scale(sc, sc)
             p.translate(-w / 2, -h / 2)
-            p.setBrush(Qt.NoBrush)
-            c = QColor(self._accent)
-            c.setAlpha(star_alpha)
-            pen = QPen(c, 1)
-            p.setPen(pen)
-            star_path = self._build_star_path(w, h)
-            p.drawPath(star_path)
+
+            p.setPen(QColor("#FFFFFF"))
+            f = QFont(["Inter", "Segoe UI", "sans-serif"], 13, QFont.Bold)
+            p.setFont(f)
+            p.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, self.text())
+
             p.restore()
-
-        shadow_col = QColor(self._accent)
-        shadow_col.setAlpha(80)
-        p.setPen(Qt.NoPen)
-        for i in range(4, -1, -1):
-            s = off * 0.8 * (i / 4.0)
-            c = QColor(shadow_col)
-            c.setAlpha(int(60 * (1.0 - i / 5.0)))
-            p.setBrush(c)
-            p.drawRoundedRect(QRectF(-s + i, -s + i, w - i * 2, h - i * 2), rr, rr)
-
-        btn_col = QColor(self._bg_color)
-        if self._hovered:
-            h_factor = 1.15
-            hr, hg, hb, _ = btn_col.getRgb()
-            btn_col = QColor(min(255, int(hr * h_factor)), min(255, int(hg * h_factor)), min(255, int(hb * h_factor)))
-        p.setBrush(btn_col)
-        p.setPen(Qt.NoPen)
-        p.drawRoundedRect(QRectF(0, 0, w - 1, h - 1), rr, rr)
-
-        if self._hovered:
-            p.save()
-            p.setClipRect(QRectF(0, 0, w - 1, h - 1))
-            dot_col = QColor(255, 255, 255, 30)
-            for dx in range(0, w, 8):
-                for dy in range(0, h, 8):
-                    ox = (self._dot_phase * 8) % 8
-                    p.setBrush(dot_col)
-                    p.setPen(Qt.NoPen)
-                    p.drawEllipse(QPointF(dx + ox, dy), 1.5, 1.5)
-            p.restore()
-
-        p.setPen(self._txt_color)
-        f = QFont()
-        f.setFamilies(["Inter", "Segoe UI", "sans-serif"])
-        f.setPointSize(11)
-        f.setWeight(QFont.DemiBold)
-        p.setFont(f)
-        icon_area = 20
-        txt_rect = QRectF(icon_area, 0, w - icon_area * 2, h)
-        p.drawText(txt_rect, Qt.AlignCenter, self.text())
-
-        if self._pressed:
-            p.setBrush(QColor(0, 0, 0, 30))
-            p.setPen(Qt.NoPen)
-            p.drawRoundedRect(QRectF(0, 0, w - 1, h - 1), rr, rr)
-
         p.end()
 
 
@@ -1613,22 +1550,24 @@ class ProcessingPage(QWidget):
         left_lay.addSpacing(SP.md)
 
         controls = QHBoxLayout()
-        controls.setSpacing(SP.sm)
+        controls.setSpacing(50)
+        controls.addStretch(1)
 
         self._btn_pause = _PillButton("Pause")
-        self._btn_pause.configure(bg=COL.accent, text="#FFFFFF", border=COL.accent_hover)
+        self._btn_pause.setFixedWidth(130)
         self._btn_pause.clicked.connect(self._toggle_pause)
         self._btn_resume = _PillButton("Resume")
-        self._btn_resume.configure(bg=COL.success, text="#FFFFFF", border=COL.success)
+        self._btn_resume.setFixedWidth(130)
         self._btn_resume.clicked.connect(self._toggle_pause)
         self._btn_resume.hide()
-        self._btn_cancel = _PillButton("Cancel")
-        self._btn_cancel.configure(bg=COL.bg_surface, text=COL.error, border=COL.border)
+        self._btn_cancel = _PillButton("Cancel", style="cancel")
+        self._btn_cancel.setFixedWidth(130)
         self._btn_cancel.clicked.connect(self.cancel_requested.emit)
 
         controls.addWidget(self._btn_pause)
         controls.addWidget(self._btn_resume)
-        controls.addWidget(self._btn_cancel, 1)
+        controls.addWidget(self._btn_cancel)
+        controls.addStretch(1)
 
         left_lay.addLayout(controls)
         left_lay.addStretch(1)
