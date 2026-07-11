@@ -194,95 +194,26 @@ class _FlowPresetBar(QWidget):
         self.current_changed.emit(name)
 
 
-class _StageToggle(QWidget):
-    toggled = Signal(bool)
-
-    def __init__(self, checked: bool = True, icon_path: str = "",
-                 parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self._checked = checked
-        self._icon_path = icon_path
-        self._svg_renderer: QSvgRenderer | None = None
-        self._pixmap: QPixmap | None = None
-        self._is_svg = icon_path.lower().endswith(".svg") if icon_path else True
-        self.setFixedSize(22, 22)
-        self.setCursor(Qt.PointingHandCursor)
-
-    def is_checked(self) -> bool:
-        return self._checked
-
-    def set_checked(self, checked: bool) -> None:
-        if checked != self._checked:
-            self._checked = checked
-            self.update()
-            self.toggled.emit(checked)
-
-    def _load_icon(self):
-        if not self._icon_path:
-            return None
-        if self._is_svg:
-            if self._svg_renderer is None:
-                try:
-                    with open(self._icon_path, "rb") as f:
-                        self._svg_renderer = QSvgRenderer(QByteArray(f.read()))
-                except Exception:
-                    return None
-            return self._svg_renderer
-        else:
-            if self._pixmap is None:
-                self._pixmap = QPixmap(self._icon_path)
-                if not self._pixmap.isNull():
-                    s = min(self.width(), self.height()) - 2
-                    self._pixmap = self._pixmap.scaled(
-                        s, s, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            return self._pixmap
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton:
-            self._checked = not self._checked
-            self.update()
-            self.toggled.emit(self._checked)
-
-    def paintEvent(self, event) -> None:
-        p = QPainter(self)
+def _svg_pixmap(path: str, size: int) -> QPixmap:
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    try:
+        with open(path, "rb") as f:
+            r = QSvgRenderer(QByteArray(f.read()))
+        p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-
-        if self._checked:
-            icon = self._load_icon()
-            if icon is not None:
-                pad = 1
-                if self._is_svg:
-                    icon.render(p, QRectF(pad, pad, w - pad * 2, h - pad * 2))
-                else:
-                    px = int((w - icon.width()) / 2)
-                    py = int((h - icon.height()) / 2)
-                    p.drawPixmap(px, py, icon)
-            else:
-                r = 4
-                p.setPen(Qt.NoPen)
-                p.setBrush(QColor(124, 92, 255))
-                p.drawRoundedRect(0, 0, w, h, r, r)
-                p.setPen(QColor("#FFFFFF"))
-                f = QFont()
-                f.setPointSize(11)
-                f.setWeight(QFont.Bold)
-                p.setFont(f)
-                p.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, "\u2713")
-        else:
-            r = 4
-            p.setPen(QPen(QColor("#262A37"), 1))
-            p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(0.5, 0.5, w - 1, h - 1, r, r)
-
+        r.render(p, QRectF(0, 0, size, size))
         p.end()
+    except Exception:
+        pass
+    return pm
 
 
 class _PipelineCard(QWidget):
     toggled = Signal(str, bool)
 
-    def __init__(self, title: str, subtitle: str, icon_svg: str,
-                 expanded: bool = False, toggle_widget: Optional[QWidget] = None,
+    def __init__(self, title: str, subtitle: str,
+                 expanded: bool = False, icon_label: Optional[QLabel] = None,
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._title = title
@@ -306,22 +237,10 @@ class _PipelineCard(QWidget):
         self._arrow.setStyleSheet(f"color: {_COLOR_TEXT_MUTED}; font-size: 9px;")
         hlay.addWidget(self._arrow)
 
-        if toggle_widget is not None:
-            self._toggle_w = toggle_widget
-        else:
-            self._toggle_w = QCheckBox()
-            self._toggle_w.setChecked(True)
-            self._toggle_w.setStyleSheet(
-                "QCheckBox::indicator { width: 16px; height: 16px; border-radius: 4px;"
-                " border: 1px solid #262A37; }"
-                "QCheckBox::indicator:checked { background-color: #7C5CFF;"
-                " border-color: #7C5CFF; }"
-            )
-        hlay.addWidget(self._toggle_w)
+        if icon_label is not None:
+            hlay.addWidget(icon_label)
 
-        icon_lbl = QLabel()
-        icon_lbl.setPixmap(pixmap(icon_svg, 18, color=_COLOR_TEXT_PRIMARY))
-        hlay.addWidget(icon_lbl)
+
 
         texts = QVBoxLayout()
         texts.setSpacing(1)
@@ -439,11 +358,7 @@ class _PipelineCard(QWidget):
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton and not self._animating:
-            chk_global = self._checkbox.mapToGlobal(QPoint(0, 0))
-            chk_local = self.mapFromGlobal(chk_global)
-            chk_rect = QRect(chk_local, self._checkbox.size())
-            if not chk_rect.contains(event.pos()):
-                self.toggle()
+            self.toggle()
         super().mousePressEvent(event)
 
 
@@ -737,10 +652,6 @@ class _PropertiesPanel(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 14, 16, 14)
         outer.setSpacing(10)
-
-        self._panel_title = QLabel("PROPERTIES")
-        self._panel_title.setObjectName("SectionLabel")
-        outer.addWidget(self._panel_title)
 
         self._card_title = QLabel("Remove Background Settings")
         self._card_title.setStyleSheet(f"color: {_COLOR_TEXT_PRIMARY}; font-size: 13px; font-weight: 600;")
@@ -1312,14 +1223,22 @@ class HomePage(QWidget):
         right_side = QVBoxLayout()
         right_side.setSpacing(0)
 
+        label_row = QHBoxLayout()
+        label_row.setContentsMargins(0, 0, 0, 0)
+        pipe_label = QLabel("PIPELINE")
+        pipe_label.setObjectName("SectionLabel")
+        pipe_label.setStyleSheet("padding-left: 14px;")
+        label_row.addWidget(pipe_label)
+        props_label = QLabel("PROPERTIES")
+        props_label.setObjectName("SectionLabel")
+        label_row.addWidget(props_label)
+        right_side.addLayout(label_row)
+
         right_row = QHBoxLayout()
         right_row.setSpacing(10)
 
         pipe_col = QVBoxLayout()
         pipe_col.setSpacing(10)
-        pipe_label = QLabel("PIPELINE")
-        pipe_label.setObjectName("SectionLabel")
-        pipe_col.addWidget(pipe_label)
 
         self._pipeline_cards: List[_PipelineCard] = []
         self._active_card = "Remove Background"
@@ -1339,18 +1258,21 @@ class HomePage(QWidget):
             os.path.join(os.path.dirname(__file__), "..", "assets", "icons", "diamond-checked.svg")
         )
         for title, subtitle, icon_name in pipeline_defs:
-            toggle = None
-            if title == "Remove Background":
-                toggle = _StageToggle(checked=True, icon_path=_WAND_SVG)
-            elif title == "AI Upscale":
-                toggle = _StageToggle(checked=True, icon_path=_DIAMOND_SVG)
-            elif title == "Resize":
-                toggle = _StageToggle(checked=True, icon_path=_STAGE_CHECKED_SVG)
-            elif title == "Output":
-                toggle = _StageToggle(checked=True, icon_path=_IMAGE_SVG)
-            card = _PipelineCard(title, subtitle, icon_name,
+            icon_label = None
+            svg_map = {
+                "Remove Background": _WAND_SVG,
+                "AI Upscale": _DIAMOND_SVG,
+                "Resize": _STAGE_CHECKED_SVG,
+                "Output": _IMAGE_SVG,
+            }
+            if title in svg_map:
+                pm = _svg_pixmap(svg_map[title], 22)
+                icon_label = QLabel()
+                icon_label.setPixmap(pm)
+                icon_label.setFixedSize(22, 22)
+            card = _PipelineCard(title, subtitle,
                                  expanded=title == "Remove Background",
-                                 toggle_widget=toggle)
+                                 icon_label=icon_label)
             card.toggled.connect(self._on_card_toggled)
             if title == "Remove Background":
                 card.set_content_widget(_RemoveBgSettings())
