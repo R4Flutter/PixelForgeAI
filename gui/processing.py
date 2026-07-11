@@ -802,12 +802,12 @@ class _StepperNode(QWidget):
         p.end()
 
 
-class _UiverseLoader(QWidget):
+class _PacmanLoader(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._time = 0.0
         self._running = False
-        self.setFixedHeight(40)
+        self._time = 0.0
+        self.setFixedHeight(60)
         self.setMinimumWidth(200)
         if not _reduced():
             self._timer = QTimer(self)
@@ -829,8 +829,11 @@ class _UiverseLoader(QWidget):
         self.hide()
 
     def set_value(self, fraction: float) -> None:
-        self._running = fraction > 0 and fraction < 1.0
+        was_running = self._running
+        self._running = fraction >= 0 and fraction < 1.0
         if self._running:
+            if not was_running:
+                self._time = 0.0
             self.show()
         else:
             self.hide()
@@ -838,41 +841,45 @@ class _UiverseLoader(QWidget):
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setRenderHint(QPainter.TextAntialiasing)
         w = self.width()
         h = self.height()
+        t = self._time
 
-        text_str = "Loading"
-        t = self._time * 0.5
-        f = QFont()
-        f.setFamilies(["Inter", "Segoe UI", "sans-serif"])
-        f.setPointSize(16)
-        f.setWeight(QFont.DemiBold)
-        p.setFont(f)
-        fm = p.fontMetrics()
-        tw = fm.horizontalAdvance(text_str)
-        scroll_x = -tw + ((t * (tw + w)) % (tw + w))
-        ty = int(h / 2 + fm.ascent() / 2 - 2)
-        gx = scroll_x + tw * ((t * 2) % 1.0)
-        g = QLinearGradient(gx - tw * 0.3, 0, gx + tw * 0.3, 0)
-        g.setColorAt(0.0, QColor(255, 255, 255, 40))
-        g.setColorAt(0.35, QColor(255, 255, 255, 255))
-        g.setColorAt(0.65, QColor(255, 255, 255, 255))
-        g.setColorAt(1.0, QColor(255, 255, 255, 40))
-        p.setPen(QPen(QBrush(g), 0))
-        p.drawText(int(scroll_x + 10), ty, text_str)
+        cx = w / 2 - 8
+        cy = h / 2
+        pr = 20
 
-        bar_w = min(130, w - 20)
-        bar_x = (w - bar_w) / 2
-        bar_y = h - 10
-        bar_h = 4
+        cycle = (t % 0.125) / 0.125
+        mouth_angle = 35 * (1 - abs(2 * cycle - 1))
+
+        pac_rect = QRectF(cx - pr, cy - pr, pr * 2, pr * 2)
+        p.setBrush(QColor("#EFF107"))
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(255, 255, 255, 25))
-        p.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, bar_h), 2, 2)
-        bar_progress = math.sin(t * math.pi * 2) ** 2
-        fill_w = bar_w * bar_progress
-        p.setBrush(_tk(COL.accent))
-        p.drawRoundedRect(QRectF(bar_x, bar_y, fill_w, bar_h), 2, 2)
+        p.drawPie(pac_rect, mouth_angle * 16, (360 - 2 * mouth_angle) * 16)
+
+        p.setBrush(QColor("#000000"))
+        p.drawEllipse(QRectF(cx - pr * 0.2 - 3, cy - pr * 0.35 - 3, 6, 6))
+
+        dot_r = 4
+        p.setBrush(QColor("#FFFFFF"))
+        offset = cycle * 26
+        starts = [34, 58, 82, 106]
+
+        for i in range(4):
+            dx = starts[i] - offset
+            if dx < -dot_r:
+                continue
+
+            if i == 3 and dx < pr + dot_r:
+                s = max(0, (dx - dot_r) / pr)
+                if s > 0.05:
+                    p.save()
+                    p.translate(cx + dx, cy)
+                    p.scale(s, s)
+                    p.drawEllipse(QRectF(-dot_r, -dot_r, dot_r * 2, dot_r * 2))
+                    p.restore()
+            else:
+                p.drawEllipse(QRectF(cx + dx - dot_r, cy - dot_r, dot_r * 2, dot_r * 2))
 
         p.end()
 
@@ -1452,18 +1459,6 @@ class ProcessingPage(QWidget):
         pipe_lay.addWidget(pipeline_widget)
         left_lay.addWidget(pipe_section)
 
-        left_lay.addSpacing(SP.md)
-
-        self._desc_label = QLabel("")
-        self._desc_label.setWordWrap(True)
-        self._desc_label.setStyleSheet(
-            f"color: {COL.accent}; font-size: {TYP.size_sm}px; "
-            f"background: transparent; padding-left: 4px;"
-        )
-        left_lay.addWidget(self._desc_label)
-
-        left_lay.addSpacing(SP.lg)
-
         div = QFrame()
         div.setObjectName("Divider")
         div.setFixedHeight(1)
@@ -1497,7 +1492,7 @@ class ProcessingPage(QWidget):
 
         progress_lay.addSpacing(SP.xs)
 
-        self._bar = _UiverseLoader()
+        self._bar = _PacmanLoader()
         self._bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         progress_lay.addWidget(self._bar)
 
@@ -1597,7 +1592,7 @@ class ProcessingPage(QWidget):
         self._current_idx = 0
 
         self._subtitle.setText(f"Batch of {self._total} image{'s' if self._total != 1 else ''}")
-        self._desc_label.setText("Preparing...")
+        pass
         self._stage_status.setText("Preparing...")
         self._eta_label.setText("ETA  --:--")
         self._count_badge.setText(f"0 / {self._total}")
@@ -1640,7 +1635,6 @@ class ProcessingPage(QWidget):
         self._stage_status.setText("Idle")
         self._eta_label.setText("ETA  --:--")
         self._count_badge.setText("0 / 0")
-        self._desc_label.setText("")
         self._subtitle.setText("")
         self._failed_list.setVisible(False)
         self._failed_list.setText("")
@@ -1648,7 +1642,6 @@ class ProcessingPage(QWidget):
 
     def on_stage(self, stage: str) -> None:
         if stage == "Completed":
-            self._desc_label.setText("")
             self._stage_status.setText("Complete")
             return
 
@@ -1665,7 +1658,6 @@ class ProcessingPage(QWidget):
 
         if idx < len(STAGE_NAMES):
             self._stage_status.setText(STAGE_NAMES[idx])
-            self._desc_label.setText(_STAGE_DESCRIPTIONS[idx])
             self._preview.show_processing_overlay(
                 STAGE_NAMES[idx],
                 round((idx + 1) / len(STAGE_NAMES) * 100),
@@ -1683,14 +1675,11 @@ class ProcessingPage(QWidget):
         self._stage_index = new_idx
 
     def _mark_all_completed(self) -> None:
-        i = 0
         for node in self._nodes:
-            animate = i == self._stage_index and self._stage_index >= 0
-            node.set_state(_StepperNode.State.COMPLETED, animate=animate)
+            node.set_state(_StepperNode.State.COMPLETED, animate=False)
             eta = self._eta_label.text().replace("ETA ", "").strip()
             if eta and eta != "--:--":
                 node.set_time(f"Completed in {eta}")
-            i += 1
 
     def _start_completion_animation(self) -> None:
         if _reduced():

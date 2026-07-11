@@ -108,13 +108,35 @@ class MainWindow(QMainWindow):
         self._event_bus.on(PipelineStartedEvent, self._on_pipeline_started)
 
     def _on_pipeline_completed(self, event: PipelineCompletedEvent) -> None:
-        from models.pipeline_result import PipelineResult
+        from models.pipeline_result import ImageResultData, PipelineResult
+        from pathlib import Path
+
+        image_results: list[ImageResultData] = []
+        output_dir = Path(event.output_folder)
+        image_suffixes = {'.png', '.jpg', '.jpeg', '.webp', '.tiff', '.tif', '.bmp'}
+        if output_dir.exists():
+            for f in sorted(output_dir.iterdir()):
+                if f.is_file() and f.suffix.lower() in image_suffixes:
+                    data = ImageResultData(
+                        source_path=f,
+                        output_path=f,
+                        succeeded=True,
+                    )
+                    try:
+                        from PIL import Image
+                        with Image.open(f) as img:
+                            data.output_size = img.size
+                    except Exception:
+                        pass
+                    image_results.append(data)
+
         result = PipelineResult(
             total=event.statistics.total_images,
             succeeded=event.statistics.succeeded,
             failed=event.statistics.failed,
             elapsed_seconds=event.statistics.elapsed_seconds,
             output_folder=event.output_folder,
+            image_results=image_results,
         )
         self._results.show_result(result, event.output_folder)
         self._navigate(2, instant=True)
@@ -130,6 +152,7 @@ class MainWindow(QMainWindow):
         self._processing.resume_requested.connect(self._resume)
         self._processing.cancel_requested.connect(self._cancel)
         self._results.process_again.connect(self._process_again)
+        self._results.output_path_changed.connect(self._on_output_path_changed)
         self._settings_page.settings_changed.connect(self._on_settings_changed)
 
     def _navigate(self, idx: int, instant: bool = False, shared_image: str = "") -> None:
@@ -251,8 +274,36 @@ class MainWindow(QMainWindow):
     def _on_finished_job(self, summary: RunSummary) -> None:
         self._processing.on_summary(summary)
         self._set_running(False)
+
+        from models.pipeline_result import ImageResultData, PipelineResult
+        from pathlib import Path
+
+        output_folder = self._last_output
+        if self._worker is not None:
+            job = self._worker._job
+            output_folder = job.settings.output_folder
+
         self._worker = None
-        from models.pipeline_result import PipelineResult
+
+        output_dir = Path(output_folder)
+        image_suffixes = {'.png', '.jpg', '.jpeg', '.webp', '.tiff', '.tif', '.bmp'}
+        image_results: list[ImageResultData] = []
+        if output_dir.exists():
+            for f in sorted(output_dir.iterdir()):
+                if f.is_file() and f.suffix.lower() in image_suffixes:
+                    data = ImageResultData(
+                        source_path=f,
+                        output_path=f,
+                        succeeded=True,
+                    )
+                    try:
+                        from PIL import Image
+                        with Image.open(f) as img:
+                            data.output_size = img.size
+                    except Exception:
+                        pass
+                    image_results.append(data)
+
         result = PipelineResult(
             total=summary.total,
             succeeded=summary.succeeded,
@@ -260,11 +311,25 @@ class MainWindow(QMainWindow):
             elapsed_seconds=summary.elapsed_seconds,
             failed_files=list(summary.failed_files),
             cancelled=summary.cancelled,
-            output_folder=self._last_output,
+            output_folder=output_folder,
+            image_results=image_results,
         )
-        self._results.show_result(result, self._last_output)
-        self._navigate(2, instant=True)
+        try:
+            self._results.show_result(result, output_folder)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+        try:
+            self._navigate(2, instant=True)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
         self._refresh_footer()
+
+    def _on_output_path_changed(self, path: str) -> None:
+        self._settings.output_folder = path
+        save_settings(self._settings)
+        self._last_output = path
 
     def _process_again(self) -> None:
         self._processing.reset()
