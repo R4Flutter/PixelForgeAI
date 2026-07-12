@@ -435,159 +435,52 @@ class _ResultStatTile(QWidget):
 
     def paintEvent(self, event) -> None:
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
+        try:
+            p.setRenderHint(QPainter.Antialiasing)
+            w, h = self.width(), self.height()
 
-        p.translate(0, self._lift)
-        p.setOpacity(self._entrance_opacity)
-        p.translate(0, self._entrance_offset)
+            p.translate(0, self._lift)
+            p.setOpacity(self._entrance_opacity)
+            p.translate(0, self._entrance_offset)
 
-        bg = _tk(C.bg_card)
-        if self._hovered:
-            bg = _tk(C.bg_surface)
-        p.setBrush(bg)
-        border_c = _tk(C.border_hover) if self._hovered else _tk(C.border)
-        p.setPen(QPen(border_c, 1))
-        p.drawRoundedRect(0, 0, w - 1, h - 1, S.card_radius, S.card_radius)
+            bg = _tk(C.bg_card)
+            if self._hovered:
+                bg = _tk(C.bg_surface)
+            p.setBrush(bg)
+            border_c = _tk(C.border_hover) if self._hovered else _tk(C.border)
+            p.setPen(QPen(border_c, 1))
+            p.drawRoundedRect(0, 0, w - 1, h - 1, S.card_radius, S.card_radius)
 
-        acc_grad = QLinearGradient(0, 0, 0, h)
-        acc_grad.setColorAt(0.0, _tk(self._accent))
-        acc_grad.setColorAt(1.0, _tk(self._accent_end))
-        p.setBrush(QBrush(acc_grad))
-        p.setPen(Qt.NoPen)
-        bar = QPainterPath()
-        bar.addRoundedRect(0, 0, 4, h - 1, 2, 2)
-        p.drawPath(bar)
+            acc_grad = QLinearGradient(0, 0, 0, h)
+            acc_grad.setColorAt(0.0, _tk(self._accent))
+            acc_grad.setColorAt(1.0, _tk(self._accent_end))
+            p.setBrush(QBrush(acc_grad))
+            p.setPen(Qt.NoPen)
+            bar = QPainterPath()
+            bar.addRoundedRect(0, 0, 4, h - 1, 2, 2)
+            p.drawPath(bar)
 
-        sz = 30 if len(self._display) > 5 else 28
-        f = QFont(["Cascadia Mono", "Consolas", "monospace"], sz, QFont.Bold)
-        p.setFont(f)
-        val_rect = QRectF(S.xl, S.sm, w - S.xl * 2, 44)
-        p.setPen(_tk(C.text_primary))
-        p.drawText(val_rect, Qt.AlignLeft | Qt.AlignBottom, self._display)
+            sz = 30 if len(self._display) > 5 else 28
+            f = QFont(["Cascadia Mono", "Consolas", "monospace"], sz, QFont.Bold)
+            p.setFont(f)
+            val_rect = QRectF(S.xl, S.sm, w - S.xl * 2, 44)
+            p.setPen(_tk(C.text_primary))
+            p.drawText(val_rect, Qt.AlignLeft | Qt.AlignBottom, self._display)
 
-        f2 = QFont(["Inter", "Segoe UI"], 9, QFont.Medium)
-        f2.setLetterSpacing(QFont.AbsoluteSpacing, 1.2)
-        p.setFont(f2)
-        lbl_rect = QRectF(S.xl, 58, w - S.xl * 2, S.lg)
-        p.setPen(_tk(C.text_muted))
-        p.drawText(lbl_rect, Qt.AlignLeft | Qt.AlignVCenter, self._label.upper())
+            f2 = QFont(["Inter", "Segoe UI"], 9, QFont.Medium)
+            f2.setLetterSpacing(QFont.AbsoluteSpacing, 1.2)
+            p.setFont(f2)
+            lbl_rect = QRectF(S.xl, 58, w - S.xl * 2, S.lg)
+            p.setPen(_tk(C.text_muted))
+            p.drawText(lbl_rect, Qt.AlignLeft | Qt.AlignVCenter, self._label.upper())
 
-        f3 = QFont(["Inter", "Segoe UI"], 8, QFont.Medium)
-        p.setFont(f3)
-        p.setPen(_tk(self._accent))
-        micro_rect = QRectF(S.xl, 78, w - S.xl * 2, S.md)
-        p.drawText(micro_rect, Qt.AlignLeft | Qt.AlignVCenter, self._micro)
-
-        p.end()
-
-
-# ---------------------------------------------------------------------------
-# _PipelineStepper
-# ---------------------------------------------------------------------------
-
-class _PipelineStepper(QWidget):
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self.setObjectName("PipelineStepper")
-        self.setFixedHeight(56)
-        self._completed_steps: Set[str] = set()
-        self._entrance_offset = 20.0
-        self._entrance_opacity = 0.0
-
-    def set_completed(self, steps: List[str]) -> None:
-        self._completed_steps = set(steps)
-        self.update()
-
-    def animate_in(self, delay: int = 0) -> QSequentialAnimationGroup:
-        a = QPropertyAnimation(self, b"ps_offset", self)
-        a.setDuration(400)
-        a.setStartValue(20.0)
-        a.setEndValue(0.0)
-        a.setEasingCurve(QEasingCurve.OutCubic)
-        g = QSequentialAnimationGroup(self)
-        g.addPause(delay)
-        g.addAnimation(a)
-        return g
-
-    def _get_pso(self) -> float:
-        return self._entrance_offset
-
-    def _set_pso(self, v: float) -> None:
-        self._entrance_offset = v
-        self._entrance_opacity = max(0.0, 1.0 - v / 20.0)
-        self.update()
-
-    ps_offset = Property(float, _get_pso, _set_pso)
-
-    def paintEvent(self, event) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height()
-
-        p.translate(0, self._entrance_offset)
-        p.setOpacity(self._entrance_opacity)
-
-        bg = _tk(C.bg_card)
-        p.setBrush(bg)
-        p.setPen(QPen(_tk(C.border), 1))
-        p.drawRoundedRect(1, 1, w - 2, h - 2, 12, 12)
-
-        steps = _PIPELINE_STEPS
-        n = len(steps)
-
-        total_dots = sum(self._dot_diameter for _ in steps)
-        total_gaps = (n - 1) * 80
-        total_labels = sum(p.fontMetrics().horizontalAdvance(s) for s in steps)
-        layout_w = total_dots + total_gaps + 40
-        start_x = (w - layout_w) / 2
-        cy = h / 2
-
-        x = start_x
-        for i, step in enumerate(steps):
-            done = step in self._completed_steps
-            dd = self._dot_diameter
-
-            if done:
-                p.setBrush(_tk(C.success))
-                p.setPen(QPen(_tk(C.success), 1))
-            else:
-                p.setBrush(_tk(C.bg_surface))
-                p.setPen(QPen(_tk(C.border), 1))
-
-            p.drawEllipse(QPointF(x + dd / 2, cy), dd / 2, dd / 2)
-
-            if done:
-                p.setPen(QPen(_tk(C.text_primary), 2))
-                chk = QPainterPath()
-                chk.moveTo(x + dd / 2 - 3, cy)
-                chk.lineTo(x + dd / 2, cy + 3)
-                chk.lineTo(x + dd / 2 + 4, cy - 3)
-                p.drawPath(chk)
-
-            label_x = x + dd + S.sm
-            f_lbl = QFont(["Inter", "Segoe UI"], 9, QFont.Semibold)
-            p.setFont(f_lbl)
-            if done:
-                p.setPen(_tk(C.text_primary))
-            else:
-                p.setPen(_tk(C.text_muted))
-            p.drawText(QRectF(label_x, cy - 8, 200, 16), Qt.AlignLeft | Qt.AlignVCenter, step)
-
-            if i < n - 1:
-                line_x = x + dd + S.sm + p.fontMetrics().horizontalAdvance(step) + S.md
-                line_end = x + dd + 80
-                p.setPen(QPen(_tk(C.success) if done else _tk(C.border), 1.5,
-                              Qt.DashLine if not done else Qt.SolidLine))
-                p.drawLine(QPointF(line_x, cy), QPointF(line_end, cy))
-
-            x += dd + 80
-
-        p.end()
-
-    @property
-    def _dot_diameter(self) -> int:
-        return 14
+            f3 = QFont(["Inter", "Segoe UI"], 8, QFont.Medium)
+            p.setFont(f3)
+            p.setPen(_tk(self._accent))
+            micro_rect = QRectF(S.xl, 78, w - S.xl * 2, S.md)
+            p.drawText(micro_rect, Qt.AlignLeft | Qt.AlignVCenter, self._micro)
+        finally:
+            p.end()
 
 
 # ---------------------------------------------------------------------------
@@ -868,130 +761,6 @@ class _ImagePreview(QFrame):
 
 
 # ---------------------------------------------------------------------------
-# _ThumbnailCarousel — horizontal filmstrip for quick preview navigation
-# ---------------------------------------------------------------------------
-
-class _ThumbnailCarousel(QWidget):
-    selected = Signal(int)
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self.setFixedHeight(86)
-        self._items: List[ImageResultData] = []
-        self._thumb_widgets: List[_ThumbCarouselItem] = []
-        self._selected = -1
-
-        self._scroll = QScrollArea()
-        self._scroll.setWidgetResizable(False)
-        self._scroll.setFrameShape(QScrollArea.NoFrame)
-        self._scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
-        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self._scroll.horizontalScrollBar().setStyleSheet(
-            "QScrollBar:horizontal { background:#0E0F14; height:4px; } "
-            "QScrollBar::handle:horizontal { background:#262A37; border-radius:2px; min-width:30px; } "
-            "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width:0px; }"
-        )
-
-        self._inner = QWidget()
-        self._inner.setStyleSheet("background:transparent;")
-        self._inner_layout = QHBoxLayout(self._inner)
-        self._inner_layout.setContentsMargins(S.sm, S.xs, S.sm, S.xs)
-        self._inner_layout.setSpacing(S.sm)
-        self._inner_layout.addStretch(1)
-
-        self._scroll.setWidget(self._inner)
-        main_lay = QHBoxLayout(self)
-        main_lay.setContentsMargins(0, 0, 0, 0)
-        main_lay.addWidget(self._scroll)
-
-    def set_items(self, items: List[ImageResultData]) -> None:
-        self._items = items
-        self._selected = -1
-        for w in self._thumb_widgets:
-            w.setParent(None)
-            w.deleteLater()
-        self._thumb_widgets.clear()
-        for i, data in enumerate(items):
-            tw = _ThumbCarouselItem(data, i)
-            tw.clicked.connect(lambda _, idx=i: self._on_thumb_clicked(idx))
-            self._thumb_widgets.append(tw)
-            self._inner_layout.insertWidget(self._inner_layout.count() - 1, tw)
-
-    def select(self, index: int) -> None:
-        if 0 <= index < len(self._thumb_widgets):
-            if self._selected >= 0 and self._selected < len(self._thumb_widgets):
-                self._thumb_widgets[self._selected].set_selected(False)
-            self._selected = index
-            self._thumb_widgets[index].set_selected(True)
-            self.selected.emit(index)
-
-    def _on_thumb_clicked(self, index: int) -> None:
-        self.select(index)
-
-
-class _ThumbCarouselItem(QWidget):
-    clicked = Signal()
-
-    def __init__(self, data: ImageResultData, index: int, parent=None) -> None:
-        super().__init__(parent)
-        self._data = data
-        self._index = index
-        self._selected = False
-        self._hovered = False
-        self.setFixedSize(70, 70)
-        self.setCursor(Qt.PointingHandCursor)
-
-        pm = QPixmap(str(data.output_path)) if data.succeeded and data.output_path else QPixmap()
-        self._pm = pm.scaled(58, 58, Qt.KeepAspectRatio, Qt.SmoothTransformation) if not pm.isNull() else pixmap("image", size=28, color=C.text_muted)
-
-    def set_selected(self, sel: bool) -> None:
-        self._selected = sel
-        self.update()
-
-    def enterEvent(self, event) -> None:
-        self._hovered = True
-        self.update()
-
-    def leaveEvent(self, event) -> None:
-        self._hovered = False
-        self.update()
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-
-    def paintEvent(self, event) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setRenderHint(QPainter.SmoothPixmapTransform)
-        w, h = self.width(), self.height()
-        rr = 8
-        if self._selected:
-            p.setBrush(_tk(C.accent))
-            p.setPen(QPen(_tk(C.accent), 2))
-        elif self._hovered:
-            p.setBrush(_tk(C.bg_surface))
-            p.setPen(QPen(_tk(C.border_hover), 1))
-        else:
-            p.setBrush(_tk(C.bg_card))
-            p.setPen(QPen(_tk(C.border), 1))
-        p.drawRoundedRect(0, 0, w - 1, h - 1, rr, rr)
-        if self._selected:
-            p.setBrush(_tk(C.bg_primary))
-            p.setPen(Qt.NoPen)
-            p.drawRoundedRect(2, 2, w - 5, h - 5, rr - 2, rr - 2)
-        if not self._pm.isNull():
-            pw, ph = self._pm.width(), self._pm.height()
-            p.drawPixmap(int((w - pw) / 2), int((h - ph) / 2), self._pm)
-        if not self._data.succeeded and not self._pm.isNull():
-            p.setPen(QPen(_tk(C.error), 2))
-            p.drawLine(8, 8, w - 8, h - 8)
-            p.drawLine(w - 8, 8, 8, h - 8)
-        p.end()
-
-
-# ---------------------------------------------------------------------------
 # _ResultThumbnail
 # ---------------------------------------------------------------------------
 
@@ -1107,184 +876,80 @@ class _ResultThumbnail(QWidget):
     def paintEvent(self, event) -> None:
         self._init_anim_props()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setRenderHint(QPainter.SmoothPixmapTransform)
-        w, h = self.width(), self.height()
+        try:
+            p.setRenderHint(QPainter.Antialiasing)
+            p.setRenderHint(QPainter.SmoothPixmapTransform)
+            w, h = self.width(), self.height()
 
-        p.translate(0, self._lift)
-        p.setOpacity(self._entrance_opacity)
-        p.translate(0, self._entrance_offset)
+            p.translate(0, self._lift)
+            p.setOpacity(self._entrance_opacity)
+            p.translate(0, self._entrance_offset)
 
-        is_fail = not self._data.succeeded
-        bg = _tk(C.bg_card) if not is_fail else QColor("#16101A")
-        if self._hovered:
-            bg = bg.lighter(108)
-        p.setBrush(bg)
-        border_c = _tk(C.border_hover) if self._hovered else (
-            _tk(C.border) if not is_fail else QColor("#3A2230")
-        )
-        p.setPen(QPen(border_c, 1))
-        p.drawRoundedRect(0, 0, w - 1, h - 1, 10, 10)
-
-        thumb_rect = QRectF(10, 10, w - 20, 116)
-        p.drawRoundedRect(thumb_rect, 8, 8)
-
-        if not self._thumb_pm.isNull():
-            pm = self._thumb_pm
-            pm_rect = QRectF(
-                thumb_rect.center().x() - pm.width() / 2,
-                thumb_rect.center().y() - pm.height() / 2,
-                pm.width(), pm.height(),
+            is_fail = not self._data.succeeded
+            bg = _tk(C.bg_card) if not is_fail else QColor("#16101A")
+            if self._hovered:
+                bg = bg.lighter(108)
+            p.setBrush(bg)
+            border_c = _tk(C.border_hover) if self._hovered else (
+                _tk(C.border) if not is_fail else QColor("#3A2230")
             )
-            p.drawPixmap(pm_rect, pm, pm.rect())
+            p.setPen(QPen(border_c, 1))
+            p.drawRoundedRect(0, 0, w - 1, h - 1, 10, 10)
 
-        if is_fail:
-            overlay = QColor(C.error)
-            overlay.setAlpha(20)
-            p.setBrush(overlay)
-            p.setPen(Qt.NoPen)
+            thumb_rect = QRectF(10, 10, w - 20, 116)
             p.drawRoundedRect(thumb_rect, 8, 8)
 
-            p.setPen(QPen(_tk(C.error), 2))
-            p.drawLine(QPointF(thumb_rect.center().x() - 8, thumb_rect.center().y() - 8),
-                       QPointF(thumb_rect.center().x() + 8, thumb_rect.center().y() + 8))
-            p.drawLine(QPointF(thumb_rect.center().x() + 8, thumb_rect.center().y() - 8),
-                       QPointF(thumb_rect.center().x() - 8, thumb_rect.center().y() + 8))
+            if not self._thumb_pm.isNull():
+                pm = self._thumb_pm
+                pm_rect = QRectF(
+                    thumb_rect.center().x() - pm.width() / 2,
+                    thumb_rect.center().y() - pm.height() / 2,
+                    pm.width(), pm.height(),
+                )
+                p.drawPixmap(pm_rect, pm, pm.rect())
 
-        f_name = QFont(["Inter", "Segoe UI"], 10, QFont.Medium)
-        p.setFont(f_name)
-        p.setPen(_tk(C.text_secondary))
-        name = self._data.output_path.name if self._data.output_path else "unknown"
-        name_rect = QRectF(10, 132, w - 20, 18)
-        elided_name = p.fontMetrics().elidedText(name, Qt.ElideMiddle, int(w - 20))
-        p.drawText(name_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_name)
+            if is_fail:
+                overlay = QColor(C.error)
+                overlay.setAlpha(20)
+                p.setBrush(overlay)
+                p.setPen(Qt.NoPen)
+                p.drawRoundedRect(thumb_rect, 8, 8)
 
-        f_meta = QFont(["Cascadia Mono", "Consolas", "monospace"], 8, QFont.Medium)
-        p.setFont(f_meta)
-        p.setPen(_tk(C.text_muted))
-        meta_parts = []
-        if self._data.output_size:
-            meta_parts.append(_fmt_size(*self._data.output_size))
-        if self._data.output_path:
-            meta_parts.append(_fmt_size_bytes(str(self._data.output_path)))
-        meta = "  \u00b7  ".join(meta_parts)
-        meta_rect = QRectF(10, 150, w - 20, 16)
-        p.drawText(meta_rect, Qt.AlignLeft | Qt.AlignVCenter, meta)
+                p.setPen(QPen(_tk(C.error), 2))
+                p.drawLine(QPointF(thumb_rect.center().x() - 8, thumb_rect.center().y() - 8),
+                           QPointF(thumb_rect.center().x() + 8, thumb_rect.center().y() + 8))
+                p.drawLine(QPointF(thumb_rect.center().x() + 8, thumb_rect.center().y() - 8),
+                           QPointF(thumb_rect.center().x() - 8, thumb_rect.center().y() + 8))
 
-        if is_fail and self._data.error:
-            f_err = QFont(["Inter", "Segoe UI"], 8, QFont.Medium)
-            p.setFont(f_err)
-            p.setPen(_tk(C.error))
-            err_rect = QRectF(10, 166, w - 20, 14)
-            elided_err = p.fontMetrics().elidedText(self._data.error, Qt.ElideRight, int(w - 20))
-            p.drawText(err_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_err)
+            f_name = QFont(["Inter", "Segoe UI"], 10, QFont.Medium)
+            p.setFont(f_name)
+            p.setPen(_tk(C.text_secondary))
+            name = self._data.output_path.name if self._data.output_path else "unknown"
+            name_rect = QRectF(10, 132, w - 20, 18)
+            elided_name = p.fontMetrics().elidedText(name, Qt.ElideMiddle, int(w - 20))
+            p.drawText(name_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_name)
 
-        p.end()
+            f_meta = QFont(["Cascadia Mono", "Consolas", "monospace"], 8, QFont.Medium)
+            p.setFont(f_meta)
+            p.setPen(_tk(C.text_muted))
+            meta_parts = []
+            if self._data.output_size:
+                meta_parts.append(_fmt_size(*self._data.output_size))
+            if self._data.output_path:
+                meta_parts.append(_fmt_size_bytes(str(self._data.output_path)))
+            meta = "  \u00b7  ".join(meta_parts)
+            meta_rect = QRectF(10, 150, w - 20, 16)
+            p.drawText(meta_rect, Qt.AlignLeft | Qt.AlignVCenter, meta)
 
-
-# ---------------------------------------------------------------------------
-# _OutputGallery
-# ---------------------------------------------------------------------------
-
-class _OutputGallery(QFrame):
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self.setObjectName("GalleryWrap")
-        self._all_thumbnails: List[_ResultThumbnail] = []
-        self._current_filter = "all"
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(S.lg, S.lg, S.lg, S.lg)
-        outer.setSpacing(S.md)
-
-        header_row = QHBoxLayout()
-        header_row.setSpacing(S.sm)
-
-        gallery_title = QLabel("OUTPUT GALLERY")
-        gallery_title.setStyleSheet(
-            f"color:{C.text_muted}; font-size:{T.size_xs}px; font-weight:{T.weight_semibold}; "
-            f"letter-spacing:1.5px; background:transparent;"
-        )
-        header_row.addWidget(gallery_title)
-
-        header_row.addStretch(1)
-
-        self._count_label = QLabel("0 images")
-        self._count_label.setStyleSheet(
-            f"color:{C.text_muted}; font-size:{T.size_sm}px; background:transparent;"
-        )
-        header_row.addWidget(self._count_label)
-
-        outer.addLayout(header_row)
-
-        pill_row = QHBoxLayout()
-        pill_row.setSpacing(S.sm)
-
-        self._pills: Dict[str, QPushButton] = {}
-        for key, label in [("all", "All"), ("success", "Succeeded"), ("fail", "Failed")]:
-            pill = QPushButton(label)
-            pill.setObjectName("FilterPill")
-            pill.setCheckable(True)
-            pill.setChecked(key == "all")
-            pill.clicked.connect(lambda _, k=key: self._set_filter(k))
-            self._pills[key] = pill
-            pill_row.addWidget(pill)
-
-        pill_row.addStretch(1)
-        outer.addLayout(pill_row)
-
-        self._flow_container = QWidget()
-        self._flow_container.setStyleSheet("background: transparent;")
-        self._flow = FlowLayout(self._flow_container, margin=0, spacing=S.md)
-        outer.addWidget(self._flow_container, 1)
-
-    def set_images(self, results: List[ImageResultData]) -> None:
-        self._all_thumbnails.clear()
-        self._clear_flow()
-        for data in results:
-            thumb = _ResultThumbnail(data)
-            thumb.clicked.connect(lambda path: getattr(self, '_on_thumb_clicked', lambda _: None)(path))
-            self._all_thumbnails.append(thumb)
-        self._apply_filter()
-        total_success = sum(1 for r in results if r.succeeded)
-        total_fail = len(results) - total_success
-        parts = [f"{len(results)} total"]
-        if total_success:
-            parts.append(f"{total_success} ok")
-        if total_fail:
-            parts.append(f"{total_fail} failed")
-        self._count_label.setText("  \u00b7  ".join(parts))
-
-    def _clear_flow(self) -> None:
-        while self._flow.count():
-            item = self._flow.takeAt(0)
-            if item and item.widget():
-                item.widget().setParent(None)
-
-    def _set_filter(self, key: str) -> None:
-        self._current_filter = key
-        for k, pill in self._pills.items():
-            pill.setChecked(k == key)
-        self._apply_filter()
-
-    def _apply_filter(self) -> None:
-        self._clear_flow()
-        for thumb in self._all_thumbnails:
-            show = (
-                self._current_filter == "all"
-                or (self._current_filter == "success" and thumb._data.succeeded)
-                or (self._current_filter == "fail" and not thumb._data.succeeded)
-            )
-            if show:
-                self._flow.addWidget(thumb)
-
-    def animate_in(self) -> QParallelAnimationGroup:
-        group = QParallelAnimationGroup(self)
-        delay = 0
-        for thumb in self._all_thumbnails:
-            group.addAnimation(thumb.animate_in(delay=delay))
-            delay = min(delay + 25, 300)
-        return group
+            if is_fail and self._data.error:
+                f_err = QFont(["Inter", "Segoe UI"], 8, QFont.Medium)
+                p.setFont(f_err)
+                p.setPen(_tk(C.error))
+                err_rect = QRectF(10, 166, w - 20, 14)
+                elided_err = p.fontMetrics().elidedText(self._data.error, Qt.ElideRight, int(w - 20))
+                p.drawText(err_rect, Qt.AlignLeft | Qt.AlignVCenter, elided_err)
+        finally:
+            p.end()
 
 
 # ---------------------------------------------------------------------------
@@ -1443,8 +1108,28 @@ class ResultsPage(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollArea > QWidget > QWidget { background: transparent; }"
+            "QScrollBar:vertical {"
+            "  background: transparent; width: 8px;"
+            "  margin: 0; padding: 0;"
+            "}"
+            "QScrollBar::handle:vertical {"
+            "  background: #262A37; border-radius: 4px;"
+            "  min-height: 40px;"
+            "}"
+            "QScrollBar::handle:vertical:hover { background: #3A3F52; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+            "  height: 0px;"
+            "}"
+            "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+            "  background: transparent;"
+            "}"
+        )
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.viewport().setStyleSheet("background: transparent;")
 
         inner = QWidget()
         inner.setStyleSheet("background: transparent;")
@@ -1475,29 +1160,15 @@ class ResultsPage(QWidget):
         root.addLayout(stats_row)
 
         # Pipeline stepper
-        self._pipeline_summary = _PipelineStepper()
-        root.addWidget(self._pipeline_summary)
-
         # Large image preview
         self._preview = _ImagePreview()
         self._preview.setVisible(False)
         root.addWidget(self._preview)
 
-        # Thumbnail carousel
-        self._carousel = _ThumbnailCarousel()
-        self._carousel.setVisible(False)
-        self._carousel.selected.connect(self._on_carousel_selected)
-        root.addWidget(self._carousel)
-
         # Output folder tile
         self._output_tile = _OutputFolderTile()
         self._output_tile.path_changed.connect(self.output_path_changed.emit)
         root.addWidget(self._output_tile)
-
-        # Output gallery
-        self._gallery = _OutputGallery()
-        self._gallery._on_thumb_clicked = self._on_gallery_thumb_clicked
-        root.addWidget(self._gallery, 1)
 
         # Failed files
         self._failed_card = _FailedFilesCard()
@@ -1514,16 +1185,6 @@ class ResultsPage(QWidget):
         outer_root.setContentsMargins(0, 0, 0, 0)
         outer_root.setSpacing(0)
         outer_root.addWidget(scroll, 1)
-
-    def _on_carousel_selected(self, index: int) -> None:
-        self._preview.select(index)
-
-    def _on_gallery_thumb_clicked(self, path: str) -> None:
-        for i, data in enumerate(self._result.image_results if self._result else []):
-            if data.output_path and str(data.output_path) == path:
-                self._preview.select(i)
-                self._carousel.select(i)
-                break
 
     def _on_process_again(self) -> None:
         self.process_again.emit()
@@ -1542,11 +1203,8 @@ class ResultsPage(QWidget):
         group.addAnimation(self._hero.animate_in())
         for i, tile in enumerate(self._stats):
             group.addAnimation(tile.animate_in(delay=150 + i * 70))
-        group.addAnimation(self._pipeline_summary.animate_in(delay=500))
-
         seq = QSequentialAnimationGroup(self)
         seq.addPause(600)
-        seq.addAnimation(self._gallery.animate_in())
         group.addAnimation(seq)
 
         group.start()
@@ -1569,22 +1227,13 @@ class ResultsPage(QWidget):
         for i, tile in enumerate(self._stats):
             tile.set_value(vals[i])
 
-        completed = []
-        if result.succeeded > 0:
-            completed = list(_PIPELINE_STEPS)
-        self._pipeline_summary.set_completed(completed)
-
         self._output_tile.set_path(output_folder)
 
         images = result.image_results
-        self._gallery.set_images(images)
 
         if images:
             self._preview.set_items(images)
             self._preview.setVisible(True)
-            self._carousel.set_items(images)
-            self._carousel.setVisible(True)
-            self._carousel.select(0)
 
         self._failed_card.set_files(result.failed_files)
 
