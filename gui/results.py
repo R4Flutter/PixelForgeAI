@@ -654,9 +654,47 @@ class _ImagePreview(QFrame):
 
         self.setAcceptDrops(False)
 
+        self._prev_btn = QPushButton(self)
+        self._prev_btn.setFixedSize(36, 36)
+        self._prev_btn.setCursor(Qt.PointingHandCursor)
+        self._prev_btn.setStyleSheet(
+            "QPushButton {"
+            "  background: rgba(14,15,20,200); border: 1px solid #262A37;"
+            "  border-radius: 18px;"
+            "  font-size: 18px; color: #7A7F93;"
+            "}"
+            "QPushButton:hover {"
+            "  background: rgba(38,42,55,220); border-color: #3A3F52; color: #E8E9ED;"
+            "}"
+        )
+        self._prev_btn.setText("\u25C0")
+        self._prev_btn.setToolTip("Previous image")
+        self._prev_btn.hide()
+
+        self._next_btn = QPushButton(self)
+        self._next_btn.setFixedSize(36, 36)
+        self._next_btn.setCursor(Qt.PointingHandCursor)
+        self._next_btn.setStyleSheet(self._prev_btn.styleSheet())
+        self._next_btn.setText("\u25B6")
+        self._next_btn.setToolTip("Next image")
+        self._next_btn.hide()
+
+        self._prev_btn.clicked.connect(self._prev_image)
+        self._next_btn.clicked.connect(self._next_image)
+
+        self._btn_timer = QTimer(self)
+        self._btn_timer.setSingleShot(True)
+        self._btn_timer.setInterval(3000)
+        self._btn_timer.timeout.connect(lambda: (self._prev_btn.hide(), self._next_btn.hide()))
+
     def set_items(self, items: List[ImageResultData], index: int = 0) -> None:
         self._items = items
         self._index = index if 0 <= index < len(items) else (0 if items else -1)
+        single = len(items) <= 1
+        self._nav_hint.setVisible(not single)
+        self._pos_label.setVisible(not single)
+        self._prev_btn.setVisible(False)
+        self._next_btn.setVisible(False)
         self._show_current()
 
     def select(self, index: int) -> None:
@@ -743,10 +781,16 @@ class _ImagePreview(QFrame):
             super().keyPressEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        delta = 1 if event.angleDelta().y() > 0 else -1
-        idx = max(0, min(len(self._items) - 1, self._index + delta))
-        if idx != self._index:
-            self.select(idx)
+        dx = abs(event.angleDelta().x())
+        dy = abs(event.angleDelta().y())
+        if dx > dy:
+            delta = 1 if event.angleDelta().x() > 0 else -1
+            idx = max(0, min(len(self._items) - 1, self._index + delta))
+            if idx != self._index:
+                self.select(idx)
+        else:
+            event.ignore()
+            super().wheelEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.LeftButton and self._index >= 0:
@@ -758,6 +802,30 @@ class _ImagePreview(QFrame):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._update_display()
+        self._reposition_buttons()
+
+    def enterEvent(self, event) -> None:
+        if len(self._items) > 1:
+            self._prev_btn.show()
+            self._next_btn.show()
+            self._btn_timer.start()
+
+    def leaveEvent(self, event) -> None:
+        self._btn_timer.start()
+
+    def _reposition_buttons(self) -> None:
+        ia = self._image_area
+        sy = ia.y() + (ia.height() - 36) // 2
+        self._prev_btn.move(ia.x() + 12, sy)
+        self._next_btn.move(ia.x() + ia.width() - 48, sy)
+        self._prev_btn.raise_()
+        self._next_btn.raise_()
+
+    def _prev_image(self) -> None:
+        self.select(max(0, self._index - 1))
+
+    def _next_image(self) -> None:
+        self.select(min(len(self._items) - 1, self._index + 1))
 
 
 # ---------------------------------------------------------------------------
@@ -1231,8 +1299,9 @@ class ResultsPage(QWidget):
 
         images = result.image_results
 
-        if images:
-            self._preview.set_items(images)
+        succeeded = [i for i in images if i.succeeded]
+        if succeeded:
+            self._preview.set_items(succeeded)
             self._preview.setVisible(True)
 
         self._failed_card.set_files(result.failed_files)
