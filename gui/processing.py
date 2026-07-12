@@ -1271,72 +1271,26 @@ class _PremiumImagePanel(QWidget):
 class _SlidingCard(QFrame):
     def __init__(self, delay: int = 0, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._slide_offset = 30.0
-        self._slide_opacity = 0.0
-        self._scale = 0.98
         self.setObjectName("Card")
         self._entered = False
         self._delay = delay
+        self._opacity_effect: QGraphicsOpacityEffect | None = None
 
     def animate_in(self) -> None:
-        if _reduced() or self._entered:
-            self._slide_offset = 0.0
-            self._slide_opacity = 1.0
-            self._scale = 1.0
-            self._entered = True
-            self._update_transform()
+        if self._entered:
             return
         self._entered = True
-        offset_anim = QPropertyAnimation(self, b"slide_offset", self)
-        offset_anim.setDuration(400)
-        offset_anim.setStartValue(30.0)
-        offset_anim.setEndValue(0.0)
-        offset_anim.setEasingCurve(QEasingCurve.OutCubic)
-        op_anim = QPropertyAnimation(self, b"slide_opacity", self)
-        op_anim.setDuration(400)
-        op_anim.setStartValue(0.0)
-        op_anim.setEndValue(1.0)
-        op_anim.setEasingCurve(QEasingCurve.OutCubic)
-        scale_anim = QPropertyAnimation(self, b"card_scale", self)
-        scale_anim.setDuration(400)
-        scale_anim.setStartValue(0.98)
-        scale_anim.setEndValue(1.0)
-        scale_anim.setEasingCurve(QEasingCurve.OutCubic)
-        group = QParallelAnimationGroup(self)
-        group.addAnimation(offset_anim)
-        group.addAnimation(op_anim)
-        group.addAnimation(scale_anim)
-        group.start()
-
-    def _get_offset(self) -> float:
-        return self._slide_offset
-
-    def _set_offset(self, v: float) -> None:
-        self._slide_offset = v
-        self._update_transform()
-
-    slide_offset = Property(float, _get_offset, _set_offset)
-
-    def _get_opacity(self) -> float:
-        return self._slide_opacity
-
-    def _set_opacity(self, v: float) -> None:
-        self._slide_opacity = v
-        self._update_transform()
-
-    slide_opacity = Property(float, _get_opacity, _set_opacity)
-
-    def _get_scale(self) -> float:
-        return self._scale
-
-    def _set_scale(self, v: float) -> None:
-        self._scale = v
-        self._update_transform()
-
-    card_scale = Property(float, _get_scale, _set_scale)
-
-    def _update_transform(self) -> None:
-        self.move(0, round(self._slide_offset))
+        if _reduced():
+            return
+        self._opacity_effect = QGraphicsOpacityEffect(self)
+        self._opacity_effect.setOpacity(0.0)
+        self.setGraphicsEffect(self._opacity_effect)
+        anim = QPropertyAnimation(self._opacity_effect, b"opacity", self)
+        anim.setDuration(400)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.start()
 
 
 class ProcessingPage(QWidget):
@@ -1612,6 +1566,8 @@ class ProcessingPage(QWidget):
         self._set_paused(False)
         self._enable_controls(True)
         self._timer.start()
+        for child in self.findChildren(_SlidingCard):
+            child.animate_in()
 
     def end(self) -> None:
         self._timer.stop()

@@ -405,3 +405,112 @@ QToolTip {
 #SplashTitle {
     background: transparent;
 }
+
+/* ----------------------------------------------------------------- */
+/* Results page                                                       */
+/* ----------------------------------------------------------------- */
+QFrame#ResultHero {
+    background-color: rgba(19, 21, 29, 220);
+    border: 1px solid #232838;
+    border-radius: 16px;
+}
+QFrame#ResultHeroFailed  { background-color: rgba(40, 18, 22, 220); border: 1px solid #5C2330; border-radius: 16px; }
+QFrame#ResultHeroCancelled { background-color: rgba(43, 34, 14, 220); border: 1px solid #6E5816; border-radius: 16px; }
+
+QFrame#ResultStatTile {
+    background-color: #13151D;
+    border: 1px solid #1E2230;
+    border-radius: 12px;
+}
+QFrame#ResultStatTile:hover { border-color: #2B3042; }
+
+QFrame#PipelineStepper {
+    background-color: transparent;
+}
+QLabel#StepTitle { color: #C4C8D6; font-size: 12px; font-weight: 600; }
+QLabel#StepTitleDone { color: #F4F5FB; font-size: 12px; font-weight: 700; }
+QLabel#StepCaption { color: #5A6080; font-size: 9px; font-weight: 600; letter-spacing: 1.2px; }
+
+QFrame#OutputTile {
+    background-color: #13151D;
+    border: 1px solid #1E2230;
+    border-radius: 12px;
+}
+QFrame#OutputTile:hover { background-color: #161821; border-color: #2B3042; }
+
+QLineEdit#PathField {
+    background-color: #0E0F14;
+    color: #B4BBDA;
+    border: 1px solid #262A37;
+    border-radius: 7px;
+    padding: 6px 10px;
+    font-family: "Cascadia Mono", "Consolas", monospace;
+    font-size: 11px;
+    selection-background-color: #7C5CFF;
+    selection-color: #FFFFFF;
+}
+QLineEdit#PathField:focus { border-color: #7C5CFF; }
+QLineEdit#PathField:disabled { color: #54586A; background-color: #0E0F14; }
+
+QPushButton#FilterPill {
+    background-color: #12141C;
+    color: #8A90A6;
+    border: 1px solid #262A37;
+    border-radius: 13px;
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+QPushButton#FilterPill:hover  { color: #C4C8D6; border-color: #2B3042; }
+QPushButton#FilterPill:checked { background-color: rgba(124,92,255,0.16); color: #C9BDFF; border-color: #4C42A0; }
+QPushButton#FilterPill:disabled { color: #54586A; }
+
+QFrame#GalleryWrap {
+    background-color: #13151D;
+    border: 1px solid #1E2230;
+    border-radius: 14px;
+}
+QFrame#ResultThumbnail {
+    background-color: #0E0F14;
+    border: 1px solid #1E2230;
+    border-radius: 10px;
+}
+QFrame#ResultThumbnailFail {
+    background-color: #16101A;
+    border: 1px solid #3A2230;
+    border-radius: 10px;
+}
+QFrame#ResultThumbnailFail:hover { border-color: #7A2C3B; }
+QLabel#ThumbName { color: #C4C8D6; font-size: 11px; font-weight: 500; }
+QLabel#ThumbMeta { color: #5A6080; font-size: 9px; font-family: "Cascadia Mono", "Consolas", monospace; }
+QLabel#ThumbError { color: #F87171; font-size: 10px; }
+
+QFrame#FailedSection {
+    background-color: #13151D;
+    border: 1px solid #1E2230;
+    border-radius: 12px;
+}
+QLabel#FailedLabel { color: #9AA0B6; font-size: 11px; font-weight: 600; letter-spacing: 1.5px; }
+QLabel#FailedCount { color: #F87171; font-size: 11px; font-weight: 700; background-color: #2A1B20; border: 1px solid #5C2330; border-radius: 8px; padding: 2px 8px; }
+QPushButton#FailedToggle { background: transparent; border: none; color: #8A90A6; padding: 4px; border-radius: 6px; }
+QPushButton#FailedToggle:hover { background-color: #1A1D2B; color: #C4C8D6; }
+QListWidget#FailedList { background: transparent; border: none; }
+QListWidget#FailedList::item { color: #C4C8D6; padding: 7px 6px; border-bottom: 1px solid #1A1D2B; font-size: 11px; }
+QListWidget#FailedList::item:hover { color: #E6E8F0; }
+QListWidget#FailedList::item:selected { background-color: rgba(124,92,255,0.14); color: #E6E8F0; border-radius: 6px; }
+
+QPushButton#ActionPrimary {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #7C5CFF, stop:1 #A78BFA);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 11px;
+    padding: 0 20px;
+    font-size: 13px;
+    font-weight: 700;
+}
+QPushButton#ActionPrimary:hover  { background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8A6BFF, stop:1 #B69BF8); }
+QPushButton#ActionPrimary:pressed{ background-color: #5A3FC0; }
+QPushButton#ActionPrimary:disabled { background-color: #2A2D3D; color: #54586A; }
+QPushButton#ActionPrimary:focus { outline: none; }
+
+QLabel#Toasted { color: #22C55E; font-size: 11px; font-weight: 600; }

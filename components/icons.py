@@ -120,6 +120,19 @@ _BODIES: Dict[str, str] = {
         '<path d="M12 10v4.2"/>'
         '<circle cx="12" cy="17" r="0.7" fill="__C__" stroke="none"/>'
     ),
+    "stop": (
+        '<rect x="7" y="7" width="10" height="10" rx="2.5" fill="__C__" stroke="none"/>'
+    ),
+    "copy": (
+        '<rect x="9" y="9" width="11" height="11" rx="2.5"/>'
+        '<path d="M5 15V5a2 2 0 0 1 2-2h8"/>'
+    ),
+    "external": (
+        '<path d="M14 4h6v6"/><path d="M20 4 10 14"/>'
+        '<path d="M19 13v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"/>'
+    ),
+    "chevron_down": '<path d="M6 9.5l6 6 6-6"/>',
+    "chevron_right": '<path d="M9.5 6l6 6-6 6"/>',
 }
 
 DEFAULT_COLOR = "#C4C8D6"
